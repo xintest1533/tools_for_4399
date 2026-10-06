@@ -106,6 +106,7 @@ OP_CULTIVATE_SPEEDUP_BACK = 1330488
 OP_CULTIVATE_REFRESH = 1184833
 OP_CULTIVATE_REFRESH_BACK = 1324097
 OP_ENTER_COPY = 1184771
+OP_GATEWAY_INDULGE_BACK = 1315586
 
 class KabuClient:
     def __init__(self, host: str, log_callback=None, *, port: Optional[int] = None):
@@ -145,6 +146,7 @@ class KabuClient:
             OP_CULTIVATE_STATE_BACK: self._handle_cultivate_state_response,
             OP_CULTIVATE_END_BACK: self._handle_cultivate_end_response,
             OP_CULTIVATE_SPEEDUP_BACK: self._handle_cultivate_speedup_response,
+            OP_GATEWAY_INDULGE_BACK: self._handle_indulge_response,
         }
         self.lock = threading.Lock()
         self.login_condition = threading.Condition()
@@ -865,8 +867,38 @@ class KabuClient:
         elif waiting == "await_advance" and m_params == 1:
             self.dragon_state["dragon_waiting"] = "idle"
 
+    def _handle_indulge_response(self, m_params: int, body: bytes):
+        """1315586 防沉迷/健康系统回包：状态、剩余时长、在线时长。"""
+        if not body:
+            self.log(f"[防沉迷] 回包 mP={m_params}（空body）", "INFO")
+            return
+        try:
+            if m_params == 0:
+                self.log("[防沉迷] 收到健康系统提示", "INFO")
+                return
+            offset = 0
+            status, offset = self._read_int(body, offset)
+            surplus, offset = self._read_int(body, offset)
+            ptype, offset = self._read_int(body, offset)
+            statetime = system_times = online_time = 0
+            if status != 8 and status != 4 and offset + 4 <= len(body):
+                statetime, offset = self._read_int(body, offset)
+            if status != 8 and offset + 4 <= len(body):
+                system_times, offset = self._read_int(body, offset)
+            if status != 8 and offset + 4 <= len(body):
+                online_time, offset = self._read_int(body, offset)
+            status_names = {1: "正常", 2: "临近限时", 3: "限时", 4: "无法进入", 8: "关停"}
+            self.log(f"[防沉迷] 状态={status}({status_names.get(status, '?')}) "
+                     f"剩余={surplus} 限时={statetime} 系统时间={system_times} "
+                     f"在线={online_time} 类型={ptype}", "INFO")
+        except (ValueError, struct.error) as exc:
+            self.log(f"[防沉迷] 回包解析失败：{exc}", "ERROR")
+
     def _handle_battle_round_start(self, m_params: int, _body: bytes):
         if self.dragon_state.get("dragon_battle_active"):
+            self.dragon_state["dragon_round"] = self.dragon_state.get("dragon_round", 0) + 1
+            self.log(f"[龙腾] 第 {self.dragon_state['dragon_round']} 回合开始，操作时限={m_params}",
+                     "BATTLE")
             self._dragon_round_action()
             return
         if not self.battle_state["active"]:
