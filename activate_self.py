@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""一次性激活器：校验多信息(MAC绑定/签名/有效期/规格/防重放) -> 写授权 -> 自删。
+"""一次性激活器：校验多信息(MAC绑定/签名/有效期/规格) -> 覆盖写授权 -> 自删。
+支持同机二次激活：即使本机已有授权（含已过期），只要新卡校验通过即覆盖换档。
 用法: python activate_self.py KABU-...   或双击打包后的 EXE。
 """
 import os
 import subprocess
 import sys
 
-import auth
 import license as L
 
 
@@ -37,12 +37,7 @@ def main():
         print("用法: activate_self.py KABU-卡密，或双击 EXE")
         sys.exit(1)
 
-    if auth.check_license() != "none":
-        print("本机已激活，无需重复激活")
-        self_destruct()
-        sys.exit(0)
-
-    ok, msg = L.activate(card)  # 以本机 MAC 校验绑定
+    ok, msg = L.activate(card)  # 校验多信息并以本机 MAC 绑定，通过则覆盖写授权
     print(msg)
     if not ok:
         sys.exit(1)
