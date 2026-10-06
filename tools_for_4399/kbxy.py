@@ -107,6 +107,7 @@ OP_CULTIVATE_REFRESH = 1184833
 OP_CULTIVATE_REFRESH_BACK = 1324097
 OP_ENTER_COPY = 1184771
 OP_GATEWAY_INDULGE_BACK = 1315586
+OP_REMOVE_PLAYER_BACK = 1315328
 
 class KabuClient:
     def __init__(self, host: str, log_callback=None, *, port: Optional[int] = None):
@@ -147,6 +148,7 @@ class KabuClient:
             OP_CULTIVATE_END_BACK: self._handle_cultivate_end_response,
             OP_CULTIVATE_SPEEDUP_BACK: self._handle_cultivate_speedup_response,
             OP_GATEWAY_INDULGE_BACK: self._handle_indulge_response,
+            OP_REMOVE_PLAYER_BACK: self._handle_remove_player_response,
         }
         self.lock = threading.Lock()
         self.login_condition = threading.Condition()
@@ -893,6 +895,10 @@ class KabuClient:
                      f"在线={online_time} 类型={ptype}", "INFO")
         except (ValueError, struct.error) as exc:
             self.log(f"[防沉迷] 回包解析失败：{exc}", "ERROR")
+
+    def _handle_remove_player_response(self, m_params: int, _body: bytes):
+        """1315328 场景玩家离开回包：仅回显，不参与任何决策。"""
+        self.log(f"[场景] 有玩家离开当前场景，成员变动 (mP={m_params})", "INFO")
 
     def _handle_battle_round_start(self, m_params: int, _body: bytes):
         if self.dragon_state.get("dragon_battle_active"):
