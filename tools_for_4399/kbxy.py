@@ -171,6 +171,8 @@ class KabuClient:
             "today_pass": 0,
             "life_chance": 0,
             "auto_running": False,
+            "auto_mode": False,
+            "auto_lottery_queue": [],
             "current_stage": 1,
             "auto_request_at": None,
             "in_dragon": False,
@@ -1043,6 +1045,13 @@ class KabuClient:
         if self.dragon_state.get("dragon_battle_active"):
             self.dragon_state["dragon_battle_active"] = False
             self.log("[龙腾] 龙腾战斗结束（结算回包）", "INFO")
+            if self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
+                if self.dragon_state.get("life_chance", 0) > 0:
+                    self.log("[龙腾] 一键连打：免费补血后进入下一关", "USER")
+                    self.dragon_medal_heal(False)
+                else:
+                    self.log("[龙腾] 一键连打：免费补血次数已用完，直接查询下一关", "USER")
+                    self.dragon_query_progress()
             return
         if self.battle_state["active"]:
             self.log("战斗结束")
@@ -1398,7 +1407,13 @@ class KabuClient:
             self.dragon_state["auto_running"] = False
             self.dragon_state["auto_request_at"] = None
             if progress["today_pass"] != 0:
-                self.log("今日龙腾已通关，不再发起战斗")
+                if self.dragon_state.get("auto_mode"):
+                    self.log("[龙腾] 今日已通关，一键连打自动抽取奖励", "USER")
+                    self.dragon_state["auto_lottery_queue"] = [1, 2]
+                    nxt = self.dragon_state["auto_lottery_queue"].pop(0)
+                    self.dragon_lottery(nxt)
+                else:
+                    self.log("今日龙腾已通关，不再发起战斗")
                 return
             if not self.dragon_state.get("in_dragon"):
                 self.log("尚未进入龙腾副本，先补发进副本请求", "WRAN")
@@ -1478,6 +1493,22 @@ class KabuClient:
         level = "INFO" if result == 0 else "WRAN"
         self.log(f"[龙腾] {action}回包：{result_text}{suffix}", level)
 
+        if operation == 5 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
+            self.log("[龙腾] 一键连打：补血阶段完成，查询下一关", "USER")
+            self.dragon_query_progress()
+        elif operation == 3 and self.dragon_state.get("auto_mode"):
+            q = self.dragon_state.get("auto_lottery_queue") or []
+            if q:
+                nxt = q.pop(0)
+                self.log(f"[龙腾] 一键连打：继续抽取奖励类型 {nxt}", "USER")
+                self.dragon_lottery(nxt)
+            else:
+                self.dragon_state["auto_running"] = False
+                self.dragon_state["auto_request_at"] = None
+                self.dragon_state["auto_mode"] = False
+                self.dragon_state["auto_lottery_queue"] = []
+                self.log("[龙腾] 奖励抽取完毕，一键连打结束", "USER")
+
     def _handle_dragon_enter_response(self, m_params: int, body: bytes):
         self.dragon_state["in_dragon"] = True
         if m_params == DRAGON_COPY_MPARAMS and len(body) >= 4:
@@ -1553,11 +1584,14 @@ class KabuClient:
             if started_at is not None and time.monotonic() - started_at < 15:
                 self.dragon_state["auto_running"] = False
                 self.dragon_state["auto_request_at"] = None
+                self.dragon_state["auto_mode"] = False
+                self.dragon_state["auto_lottery_queue"] = []
                 self.log("已取消等待中的自动推进", "USER")
                 return False
             self.log("等待进度回包超时，重新查询", "WRAN")
         self.dragon_state["auto_running"] = True
         self.dragon_state["auto_request_at"] = time.monotonic()
+        self.dragon_state["auto_mode"] = True
         if not self.dragon_state.get("in_dragon"):
             self.dragon_enter_copy()
         self.log("自动推进：先读取服务端进度，再判断是否发起下一战", "USER")
