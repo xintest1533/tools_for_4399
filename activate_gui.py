@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+from datetime import datetime
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QLineEdit, QPushButton, QMessageBox)
@@ -48,13 +49,22 @@ class ActWindow(QMainWindow):
         if not card:
             QMessageBox.warning(self, "错误", "请输入激活卡密")
             return
+        # 严格校验：格式/规格/有效期/签名/MAC绑定，防用户乱改卡密
+        p = L.parse_card(card)
+        if not p:
+            QMessageBox.warning(self, "激活失败", "卡密格式错误，请核对卡密，勿自行修改")
+            return
+        card_type, expire, _ = p
+        if expire.date() < datetime.now().date():
+            QMessageBox.warning(self, "激活失败", "卡密已过期")
+            return
         ok, msg = L.activate(card)
         if ok:
             QMessageBox.information(self, "激活成功", "授权已写入，程序即将退出并自动删除。")
             self.self_destruct()
             QApplication.quit()
         else:
-            QMessageBox.warning(self, "激活失败", msg)
+            QMessageBox.warning(self, "激活失败", "卡密与当前机器不匹配或签名无效，请勿修改卡密")
 
 
 if __name__ == "__main__":
