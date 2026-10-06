@@ -988,6 +988,21 @@ class KabuClient:
         if target is None:
             self.log("自动战斗暂停：没有存活的对方目标", "WRAN")
             return
+        target_ele = target.get("element", 0)
+        active_ele = active.get("element", 0)
+        if self._element_adv(active_ele, target_ele) <= 0:
+            better = next(
+                (actor for actor in player_team
+                 if actor["hp"] > 0 and actor["unique_id"] != active["unique_id"]
+                 and self._element_adv(actor.get("element", 0), target_ele) > 0),
+                None,
+            )
+            if better is not None:
+                self.log(f"克制决策：当前妖怪(元素{active_ele})不克制敌方(元素{target_ele})，"
+                         f"切换至克制妖怪 {better['unique_id']}", "INFO")
+                if self.send_cmd(OP_BATTLE_USER_OP, 1, [better["unique_id"]]):
+                    self.auto_action_round = self.battle_round
+                return
         skill = next(
             (item for item in active["skills"] if item["id"] > 0 and item["pp"] > 0),
             None,
@@ -1002,9 +1017,16 @@ class KabuClient:
             return
         reserve = next(
             (actor for actor in player_team
-             if actor["hp"] > 0 and actor["unique_id"] != active["unique_id"]),
+             if actor["hp"] > 0 and actor["unique_id"] != active["unique_id"]
+             and self._element_adv(actor.get("element", 0), target_ele) > 0),
             None,
         )
+        if reserve is None:
+            reserve = next(
+                (actor for actor in player_team
+                 if actor["hp"] > 0 and actor["unique_id"] != active["unique_id"]),
+                None,
+            )
         if reserve is not None:
             self.log(f"自动决策：当前技能 PP 耗尽，切换至妖怪 {reserve['unique_id']}", "WRAN")
             if self.send_cmd(OP_BATTLE_USER_OP, 1, [reserve["unique_id"]]):
