@@ -39,3 +39,36 @@ tray.py
 key_private.py
 rsa_private.pem
 rsa_public.pem
+
+# ===== 授权/激活系统（绝不公开，防绕过激活）=====
+activate*.py
+auth.py
+license.py
+gen_activator.py
+gen_gui.py
+keygen.py
+get_machine_code.py
+
+# ===== 账号与敏感数据 =====
+accounts.py
+data*.bin
+element_matrix.txt
+gs.txt
+
+# ===== 临时脚本与输出 =====
+run_fix*.py
+verify_login.py
+gen_matrix.py
+full_feature_test.py
+live_feature_test.py
+auto_web_login.py
+peiyu_*.txt
+
+# ===== 目录与构建产物 =====
+_login_research/
+_pkg_publish/
+data_data_unzip/
+卡布西游SWF源码/
+核心文档/
+*.spec
+上传PyPI.bat

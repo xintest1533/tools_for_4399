@@ -724,13 +724,10 @@ class KabuClient:
         )
         down = self.dragon_state["dragon_down_count"]
         self.log(f"[龙腾] 我方宠倒下（累计 {down} 只）", "WRAN")
-        if down >= 1:
-            self.log("[龙腾] 触发立即刷新重登（死1个即异地登录，避免妖怪死亡）", "USER")
+        if nxt >= len(switch_ids):
+            self.log("[龙腾] 我方出战宠全部倒下，退出副本", "ERROR")
             self.dragon_state["dragon_refresh_needed"] = True
             self.dragon_exit_copy()
-            return
-        if nxt >= len(switch_ids):
-            self.log("[龙腾] 我方出战宠全部倒下", "ERROR")
             return
         target = switch_ids[nxt]
         self.dragon_state["dragon_skill_idx"] = nxt
@@ -792,9 +789,6 @@ class KabuClient:
             if cur_ratio < 0.25:
                 s += 30.0
             candidates.append((f"换宠#{idx}", s, ("switch", idx)))
-        down = self.dragon_state.get("dragon_down_count", 0)
-        if down >= 1:
-            candidates.append(("刷新重登", 999.0, ("refresh", None)))
 
         if not candidates:
             self.log("[决策] 无可执行候选（当前宠技能全耗），切换候选宠兜底", "WRAN")
@@ -1418,6 +1412,13 @@ class KabuClient:
             if not self.dragon_state.get("in_dragon"):
                 self.log("尚未进入龙腾副本，先补发进副本请求", "WRAN")
                 self.dragon_enter_copy()
+                return
+
+            if progress["choice_monster"] == 0:
+                self.dragon_state["auto_draw_wait"] = True
+                self.log("[龙腾] 尚未抽取出战妖怪，发送抽取请求（每天首次进副本有效）", "USER")
+                self.send_cmd(OP_DRAGON_ACTION, DRAGON_COPY_MPARAMS, [])
+                return
 
             battle_type = int(progress["next_combat_index"] >= 17)
             battle_name = "终局战" if battle_type else "普通战"
@@ -1442,6 +1443,14 @@ class KabuClient:
             7: "交换候选妖怪",
         }
         action = action_names.get(operation, f"未知操作({operation})")
+        if self.dragon_state.get("auto_draw_wait"):
+            self.dragon_state["auto_draw_wait"] = False
+            if result == 0:
+                self.log("[龙腾] 抽取出战回包成功，重新查询进度以确认出战", "USER")
+                self.dragon_state["auto_running"] = True
+                self.dragon_query_progress()
+                return
+            self.log("[龙腾] 抽取出战回包异常，稍后重试", "WRAN")
         result_messages = {
             (2, 0): "战斗已发起",
             (2, 1): "今日已战胜首领",
@@ -1592,6 +1601,7 @@ class KabuClient:
         self.dragon_state["auto_running"] = True
         self.dragon_state["auto_request_at"] = time.monotonic()
         self.dragon_state["auto_mode"] = True
+        self.dragon_state["auto_draw_wait"] = False
         if not self.dragon_state.get("in_dragon"):
             self.dragon_enter_copy()
         self.log("自动推进：先读取服务端进度，再判断是否发起下一战", "USER")
