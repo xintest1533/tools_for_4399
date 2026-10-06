@@ -19,9 +19,9 @@ class GenWindow(QMainWindow):
         lay = QVBoxLayout(w)
 
         mh = QHBoxLayout()
-        mh.addWidget(QLabel("客户 MAC:"))
+        mh.addWidget(QLabel("客户机器码:"))
         self.mac = QLineEdit()
-        self.mac.setPlaceholderText("AA:BB:CC:DD:EE:FF")
+        self.mac.setPlaceholderText("如 MZJJ6HPRMDCQ（主程序未激活时显示）")
         mh.addWidget(self.mac)
         lay.addLayout(mh)
 
@@ -66,17 +66,19 @@ class GenWindow(QMainWindow):
         return ["1", "7", "365", "per"][self.dur.currentIndex()]
 
     def do_gen(self):
-        mac = self.mac.text().strip()
-        if not mac:
-            QMessageBox.warning(self, "错误", "请输入客户 MAC")
+        code = self.mac.text().strip()
+        if not code:
+            QMessageBox.warning(self, "错误", "请输入客户机器码")
             return
         try:
+            mac = L.code_to_mac(code)
             card, ct, ex = L.gen_card(mac, self._tier(), self._dur())
         except ValueError as e:
             QMessageBox.warning(self, "错误", str(e))
             return
         self.card = card
-        self.out.setText("卡密: %s\n规格: %s\n到期: %s" % (card, ct, ex.strftime("%Y-%m-%d")))
+        self.out.setText("机器码: %s\n还原MAC: %s\n\n卡密: %s\n规格: %s\n到期: %s" %
+                         (code, mac, card, ct, ex.strftime("%Y-%m-%d")))
 
     def do_copy(self):
         if not self.card:

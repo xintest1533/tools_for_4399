@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """一次性激活授权核心：生成/校验/激活，MAC 绑定 + 签名 + 有效期 + 规格。"""
+import base64
 import hashlib
 import hmac
 import re
@@ -79,3 +80,30 @@ def activate(card, mac=None):
         return False, "卡密无效、已过期或与当前机器不匹配"
     auth.write_license(card_type, expire)
     return True, "激活成功"
+
+
+# 可逆机器码：MAC 异或混淆 + 校验字节 -> base32，生成器可解密还原 MAC。
+_KEY = bytes([0x5A, 0xC3, 0x1F, 0x9B, 0x77, 0xE4, 0x2D, 0x81])
+
+
+def mac_to_code(mac):
+    """MAC -> 可逆机器码（加密所得，生成器可解密还原 MAC）。"""
+    hexs = mac.replace(":", "").replace("-", "").upper()
+    b = bytes.fromhex(hexs)
+    x = bytes(b[i] ^ _KEY[i % len(_KEY)] for i in range(6))
+    raw = x + bytes([sum(x) % 256])
+    return base64.b32encode(raw).decode("ascii").rstrip("=")
+
+
+def code_to_mac(code):
+    """机器码 -> 还原 MAC；校验失败抛 ValueError。"""
+    pad = code.strip().upper()
+    pad += "=" * ((8 - len(pad) % 8) % 8)
+    raw = base64.b32decode(pad)
+    if len(raw) != 7:
+        raise ValueError("机器码格式错误")
+    x, cksum = raw[:-1], raw[-1]
+    if sum(x) % 256 != cksum:
+        raise ValueError("机器码校验失败")
+    b = bytes(x[i] ^ _KEY[i % len(_KEY)] for i in range(6))
+    return ":".join("%02X" % c for c in b)
