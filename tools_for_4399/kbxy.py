@@ -105,6 +105,7 @@ OP_CULTIVATE_SPEEDUP = 1187128
 OP_CULTIVATE_SPEEDUP_BACK = 1330488
 OP_CULTIVATE_REFRESH = 1184833
 OP_CULTIVATE_REFRESH_BACK = 1324097
+OP_ENTER_COPY = 1184771
 
 class KabuClient:
     def __init__(self, host: str, log_callback=None, *, port: Optional[int] = None):
@@ -827,9 +828,36 @@ class KabuClient:
             self.dragon_state["dragon_refresh_needed"] = True
             self.dragon_exit_copy()
 
-    def _handle_dragon_round_result(self, m_params: int, _body: bytes):
+    def _log_battle_round(self, body: bytes, tag: str = "战斗"):
+        """解析战斗回合回包 body 并打日志，用于战斗过程可视化回显。"""
+        if not body:
+            return
+        try:
+            has_battle, offset = self._read_int(body, 0)
+            if has_battle != 1:
+                self.log(f"[{tag}] 回合回包：无行动数据", "INFO")
+                return
+            attacker_sid, offset = self._read_int(body, offset)
+            skill_id, offset = self._read_int(body, offset)
+            defender_sid, offset = self._read_int(body, offset)
+            miss, offset = self._read_int(body, offset)
+            if miss == 0:
+                _, offset = self._read_int(body, offset)
+                attacker_hp, offset = self._read_int(body, offset)
+                defender_hp, offset = self._read_int(body, offset)
+                self.log(f"[{tag}] 妖#{attacker_sid} 用技能{skill_id} 攻击 妖#{defender_sid} 命中，"
+                         f"当前血量 {attacker_hp}/{defender_hp}", "BATTLE")
+            else:
+                self.log(f"[{tag}] 妖#{attacker_sid} 用技能{skill_id} 攻击 妖#{defender_sid} 未命中(MISS)",
+                         "BATTLE")
+        except (ValueError, struct.error) as exc:
+            self.log(f"解析战斗回合回显失败：{exc}", "ERROR")
+
+    def _handle_dragon_round_result(self, m_params: int, body: bytes):
         if not self.dragon_state.get("dragon_battle_active"):
             return
+        if m_params == 0:
+            self._log_battle_round(body, "龙腾")
         waiting = self.dragon_state.get("dragon_waiting", "idle")
         if waiting == "await_attack":
             self.dragon_state["dragon_waiting"] = "await_advance"
@@ -850,6 +878,7 @@ class KabuClient:
 
     def _handle_battle_round_result(self, m_params: int, body: bytes):
         if m_params == 0:
+            self._log_battle_round(body, "战斗")
             try:
                 has_battle, offset = self._read_int(body, 0)
                 if has_battle == 1:
@@ -1754,6 +1783,11 @@ class KabuClient:
 
     def cultivate_refresh(self):
         return self.send_cmd(OP_CULTIVATE_REFRESH, 10000, [4])
+
+    def cultivate_enter(self) -> bool:
+        """进入培育仓（妖怪孵蛋繁殖）场景 19030。"""
+        self.log("[培育仓] 进入培育仓场景（19030）", "USER")
+        return self.send_cmd(OP_ENTER_COPY, 19030)
 
     def get_spirit_list(self):
         return self.send_cmd(OP_GET_SPIRIT_LIST)
