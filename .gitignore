@@ -35,3 +35,7 @@ kabu_login.py
 kabu_full_api.py
 kabu_gui.py
 tray.py
+
+key_private.py
+rsa_private.pem
+rsa_public.pem

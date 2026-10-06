@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QLabel, QLineEdit, QComboBox, QPushButton, QMessageBox, QTextEdit)
 
 import license as L
+from key_private import PRIVATE_PEM
 
 
 class GenWindow(QMainWindow):
@@ -72,7 +73,7 @@ class GenWindow(QMainWindow):
             return
         try:
             mac = L.code_to_mac(code)
-            card, ct, ex = L.gen_card(mac, self._tier(), self._dur())
+            card, ct, ex = L.gen_card(mac, self._tier(), self._dur(), PRIVATE_PEM)
         except ValueError as e:
             QMessageBox.warning(self, "错误", str(e))
             return

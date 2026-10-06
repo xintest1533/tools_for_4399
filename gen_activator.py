@@ -15,6 +15,7 @@ import subprocess
 import sys
 
 import license as L
+from key_private import PRIVATE_PEM
 
 
 def build_activator_exe(card, mac, out_name):
@@ -81,7 +82,7 @@ def main():
     ap.add_argument("--exe", action="store_true", help="同时打包一次性激活器EXE")
     a = ap.parse_args()
 
-    card, ctype, expire = L.gen_card(a.mac, a.tier, a.duration)
+    card, ctype, expire = L.gen_card(a.mac, a.tier, a.duration, PRIVATE_PEM)
     print("=== 卡密 ===")
     print(card)
     print("绑定MAC:", a.mac)
