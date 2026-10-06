@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tools_for_4399"
+version = "0.2.0"
+description = "4399 卡布西游 登录与网关客户端工具库"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "kabu-dev" }]
+keywords = ["4399", "kabuxiyou", "game", "client"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "requests",
+    "pycryptodome",
+]
+
+[tool.setuptools.packages.find]
+include = ["tools_for_4399*"]

@@ -1,0 +1,37 @@
+# 虚拟环境 / 缓存 / 构建产物
+.venv/
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+
+# 运行输出与抓包(不纳入版本库)
+_输出/
+_抓包/
+_归档/
+_发布/
+http_capture/
+sniff_capture/
+*.etl
+*.pcap
+accounts.json
+auth_string.txt
+
+# IDE
+.vscode/
+
+# 反编译源码 / 临时工具（不进公开库）
+as_temp/
+SWF资源/
+_clean_tool/
+_wheel_test/
+kbxy_clean_out.py
+credentials.json
+
+# 本地测试与独立脚本
+test_*.py
+kabu_login.py
+kabu_full_api.py
+kabu_gui.py
+tray.py
