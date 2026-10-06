@@ -4,7 +4,11 @@ import base64
 import hashlib
 import hmac
 import re
+import time
 from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
+
+import requests
 
 import auth
 
@@ -107,3 +111,34 @@ def code_to_mac(code):
         raise ValueError("机器码校验失败")
     b = bytes(x[i] ^ _KEY[i % len(_KEY)] for i in range(6))
     return ":".join("%02X" % c for c in b)
+
+
+# 防时间戳绕过：向云端请求时间，对比系统时间。
+_TIME_URLS = ("https://www.baidu.com", "https://www.qq.com", "http://enter.wanwan4399.com")
+
+
+def fetch_remote_timestamp(timeout=5):
+    """从云端响应 Date 头取时间戳；全部失败抛 RuntimeError。"""
+    for u in _TIME_URLS:
+        try:
+            r = requests.get(u, timeout=timeout)
+            h = r.headers.get("Date")
+            if h:
+                ts = parsedate_to_datetime(h).timestamp()
+                if ts:
+                    return ts
+        except Exception:
+            continue
+    raise RuntimeError("无法获取远端时间")
+
+
+def verify_system_time(tolerance=300):
+    """对比系统时间与云端时间。返回 (ok, msg)。
+    系统时间偏差超过 tolerance -> 请修正系统时间；无法请求 -> 请连接互联网。"""
+    try:
+        remote = fetch_remote_timestamp()
+    except Exception:
+        return False, "请连接互联网"
+    if abs(remote - time.time()) > tolerance:
+        return False, "请修正系统时间"
+    return True, ""
