@@ -44,6 +44,17 @@ class MultiAccountRunner:
         self.clients: Dict[str, KabuClient] = {}
         self.status: Dict[str, str] = {}
         self._creds: Dict[str, Any] = self._load_creds()
+        self._login_lock = threading.Lock()
+        self._last_login_ts = 0.0
+
+    def _throttle_login(self) -> None:
+        with self._login_lock:
+            now = time.time()
+            wait = 60.0 - (now - self._last_login_ts)
+            if wait > 0:
+                self._log(f"距上次登录不足1分钟，等待 {wait:.0f}s（节流防风控）")
+                time.sleep(wait)
+            self._last_login_ts = time.time()
 
     def _load_creds(self) -> Dict[str, Any]:
         if not os.path.exists(self.cred_file):
@@ -78,6 +89,7 @@ class MultiAccountRunner:
         token = acc.token or self.get_saved_token(acc.username)
         if not token and self.token_fetcher:
             try:
+                self._throttle_login()
                 token = self.token_fetcher(acc.username, acc.password)
                 self.save_token(acc.username, token)
             except Exception as exc:
@@ -99,6 +111,7 @@ class MultiAccountRunner:
             client.close()
             if self.token_fetcher:
                 try:
+                    self._throttle_login()
                     token = self.token_fetcher(acc.username, acc.password)
                     self.save_token(acc.username, token)
                     client.connect()
