@@ -4,6 +4,9 @@ import time
 import threading
 import random
 import zlib
+import re
+import os
+import sys
 from typing import Optional, List, Dict, Any, Callable, Tuple
 
 HOST: str = "109.244.56.70"
@@ -150,6 +153,7 @@ class KabuClient:
             OP_GATEWAY_INDULGE_BACK: self._handle_indulge_response,
             OP_REMOVE_PLAYER_BACK: self._handle_remove_player_response,
         }
+        self._spirit_names: Optional[Dict[int, str]] = None
         self.lock = threading.Lock()
         self.login_condition = threading.Condition()
         self.login_error: Optional[str] = None
@@ -652,9 +656,10 @@ class KabuClient:
                 }
                 if is_mine:
                     skillsets.append(skills)
-                    switch_ids.append(spirit_id)
+                    switch_ids.append(unique_id)
                     pets.append({"hp": hp, "maxhp": max(max_hp, hp, 1),
-                                 "element": element, "spirit_id": spirit_id})
+                                 "element": element, "spirit_id": spirit_id,
+                                 "unique_id": unique_id, "sid": sid})
                 else:
                     enemies.append(actor)
                 if state == 2 and not is_mine:
@@ -812,6 +817,24 @@ class KabuClient:
         return best[2] + (conf,)
 
     def _dragon_round_action(self):
+        pets = self.dragon_state.get("dragon_pets") or []
+        switch_ids = self.dragon_state.get("dragon_switch_ids") or []
+        pi = min(self.dragon_state.get("dragon_skill_idx", 0), len(pets) - 1)
+        if pets and pi < len(pets) and pets[pi].get("hp", 1) <= 0:
+            nxt = pi + 1
+            if nxt < len(switch_ids) and switch_ids[nxt]:
+                self.dragon_state["dragon_skill_idx"] = nxt
+                self.dragon_state["dragon_sub_idx"] = 0
+                self.log(f"[龙腾] 当前宠血量归零，兜底切换到候选宠 #{nxt} "
+                         f"(UID={switch_ids[nxt]})", "WRAN")
+                self.send_cmd(OP_BATTLE_USER_OP, 1, [switch_ids[nxt]])
+                self.send_cmd(OP_DRAGON_ROUND_ADVANCE, 0)
+                self.dragon_state["dragon_waiting"] = "await_advance"
+                return
+            self.log("[龙腾] 当前宠倒下且无候选可切，触发退出副本", "ERROR")
+            self.dragon_state["dragon_refresh_needed"] = True
+            self.dragon_exit_copy()
+            return
         action, payload, conf = self._dragon_decide_action()
         if action == "skill":
             sid = payload
@@ -832,6 +855,39 @@ class KabuClient:
             self.dragon_state["dragon_refresh_needed"] = True
             self.dragon_exit_copy()
 
+    def _load_spirit_names(self):
+        """从 sprite.xml 加载妖怪ID->名称映射（懒加载）。"""
+        self._spirit_names = {}
+        candidates = []
+        if getattr(sys, "_MEIPASS", None):
+            candidates.append(os.path.join(sys._MEIPASS, "sprite.xml"))
+        candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "sprite.xml"))
+        candidates.append(os.path.join(os.getcwd(), "sprite.xml"))
+        candidates.append("sprite.xml")
+        for path in candidates:
+            try:
+                if not os.path.exists(path):
+                    continue
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    txt = f.read()
+                for m in re.finditer(r'<sprite id="(\d+)">\s*<name>([^<]*)</name>', txt):
+                    self._spirit_names[int(m.group(1))] = m.group(2).strip()
+                if self._spirit_names:
+                    self.log(f"已加载妖怪名称表 {len(self._spirit_names)} 条（{path}）", "INFO")
+                return
+            except Exception as exc:
+                self.log(f"加载妖怪名称表失败：{exc}", "WRAN")
+
+    def _spirit_name(self, sid: int) -> str:
+        if self._spirit_names is None:
+            self._load_spirit_names()
+        nm = (self._spirit_names or {}).get(sid)
+        return nm if nm else ""
+
+    def _sid_label(self, sid: int) -> str:
+        nm = self._spirit_name(sid)
+        return f"{nm}(#{sid})" if nm else f"#{sid}"
+
     def _log_battle_round(self, body: bytes, tag: str = "战斗"):
         """解析战斗回合回包 body 并打日志，用于战斗过程可视化回显。"""
         if not body:
@@ -849,11 +905,12 @@ class KabuClient:
                 _, offset = self._read_int(body, offset)
                 attacker_hp, offset = self._read_int(body, offset)
                 defender_hp, offset = self._read_int(body, offset)
-                self.log(f"[{tag}] 妖#{attacker_sid} 用技能{skill_id} 攻击 妖#{defender_sid} 命中，"
+                self.log(f"[{tag}] {self._sid_label(attacker_sid)} 用技能{skill_id} 攻击 "
+                         f"{self._sid_label(defender_sid)} 命中，"
                          f"当前血量 {attacker_hp}/{defender_hp}", "BATTLE")
             else:
-                self.log(f"[{tag}] 妖#{attacker_sid} 用技能{skill_id} 攻击 妖#{defender_sid} 未命中(MISS)",
-                         "BATTLE")
+                self.log(f"[{tag}] {self._sid_label(attacker_sid)} 用技能{skill_id} 攻击 "
+                         f"{self._sid_label(defender_sid)} 未命中(MISS)", "BATTLE")
         except (ValueError, struct.error) as exc:
             self.log(f"解析战斗回合回显失败：{exc}", "ERROR")
 
@@ -862,12 +919,45 @@ class KabuClient:
             return
         if m_params == 0:
             self._log_battle_round(body, "龙腾")
+            self._update_dragon_hp_from_round(body)
         waiting = self.dragon_state.get("dragon_waiting", "idle")
         if waiting == "await_attack":
             self.dragon_state["dragon_waiting"] = "await_advance"
             self.send_cmd(OP_DRAGON_ROUND_ADVANCE, 0)
         elif waiting == "await_advance" and m_params == 1:
             self.dragon_state["dragon_waiting"] = "idle"
+
+    def _update_dragon_hp_from_round(self, body: bytes):
+        """从战斗回合回包同步我方宠血量，用于宠死即切兜底。"""
+        if not body:
+            return
+        try:
+            has_battle, offset = self._read_int(body, 0)
+            if has_battle != 1:
+                return
+            attacker_sid, offset = self._read_int(body, offset)
+            _, offset = self._read_int(body, offset)  # skill_id
+            defender_sid, offset = self._read_int(body, offset)
+            miss, offset = self._read_int(body, offset)
+            if miss != 0:
+                return
+            _, offset = self._read_int(body, offset)  # 伤害
+            attacker_hp, offset = self._read_int(body, offset)
+            defender_hp, offset = self._read_int(body, offset)
+        except (ValueError, struct.error):
+            return
+        pets = self.dragon_state.get("dragon_pets") or []
+        for p in pets:
+            if p.get("sid") == attacker_sid:
+                p["hp"] = attacker_hp
+            if p.get("sid") == defender_sid:
+                p["hp"] = defender_hp
+        pi = min(self.dragon_state.get("dragon_skill_idx", 0), len(pets) - 1)
+        if pets and pi < len(pets) and pets[pi].get("hp", 1) <= 0:
+            self.dragon_state["dragon_down_count"] = (
+                self.dragon_state.get("dragon_down_count", 0) + 1
+            )
+            self.log(f"[龙腾] 回合血量跟踪：当前宠血量归零，等待/触发切换", "WRAN")
 
     def _handle_indulge_response(self, m_params: int, body: bytes):
         """1315586 防沉迷/健康系统回包：状态、剩余时长、在线时长。"""
@@ -1457,7 +1547,9 @@ class KabuClient:
         self.log(
             f"[龙腾] 勋章={progress['medals']}，副本间免费补血次数="
             f"{progress['life_chance']}，今日通关={progress['today_pass']}，"
-            f"下一关={progress['next_combat_index']}，当前场次={progress['current_combat']}，"
+            f"进度：第 {progress['next_combat_index'] + 1}/17 场"
+            f"({'终局战(Boss)' if progress['next_combat_index'] >= 17 else '普通战'})，"
+            f"当前场次={progress['current_combat']}，"
             f"候选妖怪={len(candidates)}只"
         )
         self.log("[龙腾] 候选列表：" + "、".join(candidates))
