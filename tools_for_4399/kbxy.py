@@ -111,6 +111,7 @@ OP_CULTIVATE_REFRESH_BACK = 1324097
 OP_ENTER_COPY = 1184771
 OP_GATEWAY_INDULGE_BACK = 1315586
 OP_REMOVE_PLAYER_BACK = 1315328
+OP_SCREEN_BROADCAST_BACK = 1316479
 
 class KabuClient:
     def __init__(self, host: str, log_callback=None, *, port: Optional[int] = None):
@@ -152,6 +153,7 @@ class KabuClient:
             OP_CULTIVATE_SPEEDUP_BACK: self._handle_cultivate_speedup_response,
             OP_GATEWAY_INDULGE_BACK: self._handle_indulge_response,
             OP_REMOVE_PLAYER_BACK: self._handle_remove_player_response,
+            OP_SCREEN_BROADCAST_BACK: self._handle_screen_broadcast,
         }
         self._spirit_names: Optional[Dict[int, str]] = None
         self.lock = threading.Lock()
@@ -381,7 +383,8 @@ class KabuClient:
                 preview = body[:96].hex(" ")
                 truncated = "（已截断）" if len(body) > 96 else ""
                 self.log(
-                    f"尚无结构化解析器，回包原始数据 {len(body)} 字节：{preview}{truncated}",
+                    f"尚无结构化解析器 opcode={opcode} mP={m_params}，"
+                    f"回包原始数据 {len(body)} 字节：{preview}{truncated}",
                     "WRAN",
                 )
                 continue
@@ -989,6 +992,40 @@ class KabuClient:
     def _handle_remove_player_response(self, m_params: int, _body: bytes):
         """1315328 场景玩家离开回包：仅回显，不参与任何决策。"""
         self.log(f"[场景] 有玩家离开当前场景，成员变动 (mP={m_params})", "INFO")
+
+    def _handle_screen_broadcast(self, m_params: int, body: bytes):
+        """1316479 屏幕广播/全服公告：击杀BOSS、活动、公告文本。"""
+        try:
+            if m_params == -1:
+                self.log("[广播] 小喇叭已关闭", "INFO")
+                return
+            if not body:
+                self.log(f"[广播] 屏幕广播 mP={m_params}（空body）", "INFO")
+                return
+            offset = 0
+            uid, offset = self._read_int(body, offset)
+            name, offset = self._read_utf(body, offset)
+            if m_params == 1:
+                bossid, offset = self._read_int(body, offset)
+                self.log(f"[广播] {name}(uid={uid}) 击杀了BOSS#{bossid}", "INFO")
+            elif m_params == 2:
+                activeid, offset = self._read_int(body, offset)
+                giftid, offset = self._read_int(body, offset)
+                toolnum, offset = self._read_int(body, offset)
+                self.log(f"[广播] {name}(uid={uid}) 活动#{activeid} 获得礼物#{giftid} x{toolnum}",
+                         "INFO")
+            elif m_params == 3:
+                _, offset = self._read_int(body, offset)  # strlen
+                ln, offset = self._read_int(body, offset)
+                items = []
+                for _ in range(min(ln, 50)):
+                    it, offset = self._read_utf(body, offset)
+                    items.append(it)
+                self.log(f"[广播] {name} 公告：" + "、".join(items), "INFO")
+            else:
+                self.log(f"[广播] 屏幕广播 mP={m_params}，{len(body)}字节", "INFO")
+        except (ValueError, struct.error) as exc:
+            self.log(f"[广播] 解析失败：{exc}", "ERROR")
 
     def _handle_battle_round_start(self, m_params: int, _body: bytes):
         if self.dragon_state.get("dragon_battle_active"):
