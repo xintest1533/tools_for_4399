@@ -1,0 +1,8 @@
+﻿git : fatal: unable to access 'https://github.com/xintest1533/tools_for_4399.git/': Failed to connect to github.com:443
+ over proxy 127.0.0.1 after 2114 ms: Could not connect to server
+所在位置 行:1 字符: 93
++ ... gitlog.txt; git push --force-with-lease -u origin main *> gitpush.txt ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (fatal: unable t...nnect to server:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

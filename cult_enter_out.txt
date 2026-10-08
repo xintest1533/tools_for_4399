@@ -1,0 +1,72 @@
+﻿[LOG] 正在加载4399登录框并获取本次会话参数
+[LOG] 正在提交4399认证请求
+[LOG] 4399登录成功，获取Cookie 10 个
+[LOG] 获取 auth_string 成功 (len=189)
+[LOG] [INFO] 正在连接游戏服务器 109.244.56.70:12011...
+[LOG] [INFO] 连接游戏服务器成功
+[LOG] [INFO] 正在进行认证登录
+[LOG] [INFO] 发送命令 opcode=1185433, mParams=0
+[LOG] [INFO] 发送命令 opcode=1183744, mParams=3
+[LOG] [INFO] 收到回包 opcode=1314816, mParams=2
+[LOG] [INFO] 账号认证通过，正在查询服务器列表
+[LOG] [INFO] 发送命令 opcode=1183751, mParams=0
+[LOG] [INFO] 收到回包 opcode=1314823, mParams=222
+[LOG] [INFO] 服务端报告可用服务器数量：222
+[LOG] [INFO] 发送命令 opcode=1183749, mParams=1000
+[LOG] [INFO] 收到回包 opcode=1314821, mParams=0
+[LOG] [INFO] 选择服务器 水火无功 (509)，在线人数=2，列表数量=216
+[LOG] [INFO] 发送命令 opcode=1183750, mParams=509
+[LOG] [INFO] 收到回包 opcode=1315883, mParams=4
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 8 字节：d9 a8 5b 00 02 00 00 00
+[LOG] [INFO] 收到回包 opcode=1318446, mParams=18
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 144 字节：06 00 00 00 00 00 00 00 07 00 00 00 01 00 00 00 09 00 00 00 00 00 00 00 0a 00 00 00 00 00 00 00 0b 00 00 00 00 00 00 00 0c 00 00 00 00 00 00 00 0d 00 00 00 00 00 00 00 0e 00 00 00 00 00 00 00 0f 00 00 00 00 00 00 00 12 00 00 00 00 00 00 00 13 00 00 00 00 00 00 00 01 00 00 00 01 00 00 00（已截断）
+[LOG] [INFO] 收到回包 opcode=1315586, mParams=1
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 24 字节：03 00 00 00 19 45 00 00 00 00 00 00 e9 1a 00 00 14 c5 c4 6a 37 01 00 00
+[LOG] [INFO] 收到回包 opcode=1314822, mParams=0
+[LOG] [INFO] 进入服务器确认成功，玩家ID=273622610
+[LOG] [INFO] 发送进场景请求，场景ID=1004
+[LOG] [INFO] 服务端已确认进入服务器 水火无功 (509)
+[LOG] [INFO] 发送命令 opcode=1184313, mParams=1004
+[LOG] [INFO] 收到回包 opcode=1317360, mParams=0
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 8 字节：00 00 00 00 00 00 00 00
+[LOG] [INFO] 收到回包 opcode=1315395, mParams=1
+[LOG] [INFO] 已进入场景（回包 mParams=1），功能请求可用
+== in_scene = True
+== 进培育仓场景19030 ==
+[LOG] [USER] [培育仓] 进入培育仓场景（19030）
+[LOG] [INFO] 发送命令 opcode=1184771, mParams=19030
+[LOG] [INFO] 收到回包 opcode=1317152, mParams=0
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 4 字节：00 00 00 00
+[LOG] [INFO] 收到回包 opcode=1317170, mParams=0
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 0 字节：
+[LOG] [INFO] 收到回包 opcode=1317176, mParams=0
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 0 字节：
+[LOG] [INFO] 收到回包 opcode=1315384, mParams=273622610
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 8 字节：52 26 4f 10 a3 99 06 01
+[LOG] [INFO] 收到回包 opcode=1315843, mParams=19030
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 4 字节：00 00 00 00
+[LOG] [INFO] 收到回包 opcode=1316483, mParams=0
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 4 字节：00 00 00 00
+[LOG] [INFO] 收到回包 opcode=1317330, mParams=4
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 12 字节：bf aa 0c 00 06 00 e6 8c af e5 a3 b0
+[LOG] [INFO] 收到回包 opcode=1316392, mParams=273622610
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 47 字节：bf aa 0c 00 52 26 4f 10 05 00 00 00 00 00 00 00 01 00 00 00 06 00 e6 8c af e5 a3 b0 01 00 6c bd 1f 74 0b 06 00 e9 93 85 e7 90 83 00 00 00 00
+[LOG] [INFO] 收到回包 opcode=1315328, mParams=1448539792
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 0 字节：
+[LOG] [INFO] 收到回包 opcode=1316479, mParams=2
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 24 字节：c4 08 47 6c 06 00 e7 a5 9e e9 a3 8e 02 00 00 00 71 b8 06 00 01 00 00 00
+== 查妖怪列表 ==
+[LOG] [INFO] 发送命令 opcode=1187329, mParams=0
+[LOG] [INFO] 收到回包 opcode=1318401, mParams=0
+[LOG] [INFO] [妖怪列表] 序列号=1263，当前数量=973，总数量=1000，本次解析=4
+[LOG] [INFO] [妖怪列表] 妖怪ID=858，索引=2586，等级=100，HP=0，技能=4369, 2080, 4370, 4372
+[LOG] [INFO] [妖怪列表] 妖怪ID=605，索引=2621，等级=100，HP=343，技能=2984, 1697, 2977, 4428
+[LOG] [INFO] [妖怪列表] 妖怪ID=563，索引=2566，等级=100，HP=349，技能=3016, 3388, 4342, 1318
+[LOG] [INFO] [妖怪列表] 妖怪ID=1263，索引=2688，等级=5，HP=28，技能=1110, 1091
+[LOG] [INFO] 收到回包 opcode=1316479, mParams=2
+[LOG] [WRAN] 尚无结构化解析器，回包原始数据 36 字节：18 82 bb 29 12 00 e7 a7 8b e5 a4 9c e5 88 9d e9 9b aa e2 9d 84 ef b8 8f 01 00 00 00 64 00 00 00 40 42 0f 00
+== 查培育状态 ==
+[LOG] [INFO] 发送命令 opcode=1187122, mParams=0
+[LOG] [INFO] 收到回包 opcode=1330482, mParams=1
+[LOG] [INFO] [培育仓] 状态 CID=59 剩余=767429 需时=950400 父=2372 母=2608 蛋=2608 技能=[]
+done
