@@ -633,6 +633,7 @@ class KabuClient:
         enemies = []
         try:
             offset = 0
+            is_first_actor = True
             while offset + 4 <= len(body):
                 state, offset = self._read_int(body, offset)
                 if state == -1:
@@ -640,7 +641,16 @@ class KabuClient:
                 if state not in (1, 2):
                     continue
                 sid, offset = self._read_int(body, offset)
-                group_type, offset = self._read_int(body, offset)
+                # 敌方段首带一个孤立边界标记(1)，会被误读为 state=1/sid=2
+                # （我方 sid 只可能 0/1，不可能为 2）；检测到即回退到真正的敌方 state 再解析。
+                if state == 1 and sid == 2 and not is_first_actor:
+                    offset -= 4
+                    continue
+                group_type = 0
+                # 字段布局：仅我方出战第1只带 group_type（=0），其余 actor（后备/敌方）无该字段。
+                # 固定读取 group 会让后续 actor 全部错位（skill_count 读错导致 break，只解析出第1只、无法换宠）。
+                if is_first_actor:
+                    group_type, offset = self._read_int(body, offset)
                 hp, offset = self._read_int(body, offset)
                 max_hp, offset = self._read_int(body, offset)
                 level, offset = self._read_int(body, offset)
@@ -663,6 +673,8 @@ class KabuClient:
                 if not ok:
                     break
                 is_mine = (self.user_id is not None and user_id == self.user_id)
+                # 敌方段首可能带一个额外标记（1），导致其 state 被误读为 1、sid 被挤偏；
+                # 用 uid 判定敌我即可归位（spirit/elem/hp/skills 字段不受影响）。
                 actor = {
                     "sid": sid, "group_type": group_type, "hp": hp,
                     "max_hp": max(max_hp, hp, 1), "level": level,
@@ -677,10 +689,7 @@ class KabuClient:
                                  "unique_id": unique_id, "sid": sid})
                 else:
                     enemies.append(actor)
-                if state == 2 and not is_mine:
-                    if offset + 4 > len(body):
-                        break
-                    _, offset = self._read_int(body, offset)
+                is_first_actor = False
         except (ValueError, struct.error) as exc:
             self.log(f"[龙腾] 战斗初始化通用解析失败：{exc}，回退 uid 扫描", "WRAN")
             skillsets, switch_ids, pets = self._dragon_parse_by_uid(body)
@@ -1027,9 +1036,9 @@ class KabuClient:
                 self.log(f"加载技能表失败：{exc}", "WRAN")
 
     def _skill_info(self, sid: int):
-        if self._skill_table is None:
+        if not getattr(self, "_skill_table", None):
             self._load_skill_table()
-        return (self._skill_table or {}).get(sid) or {}
+        return (getattr(self, "_skill_table", None) or {}).get(sid) or {}
 
     def _skill_name(self, sid: int) -> str:
         return self._skill_info(sid).get("name", "")
