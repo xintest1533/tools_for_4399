@@ -1670,17 +1670,21 @@ class KabuClient:
         self.dragon_state["current_stage"] = progress["next_combat_index"]
         self.dragon_state["candidates"] = candidates
         self.dragon_state["wins"] = wins
-        self.log(
-            f"[龙腾] 勋章={progress['medals']}，副本间免费补血次数="
-            f"{progress['life_chance']}，今日通关={progress['today_pass']}，"
-            f"进度：第 {progress['next_combat_index'] + 1}/17 场"
-            f"({'终局战(Boss)' if progress['next_combat_index'] >= 16 else '普通战'})，"
-            f"当前场次={progress['current_combat']}，"
-            f"候选妖怪={len(candidates)}只"
-        )
-        self.log("[龙腾] 候选列表：" + "、".join(candidates))
-        if wins:
-            self.log("[龙腾] 已胜场：" + "、".join(wins))
+        fp = (progress['next_combat_index'], progress['current_combat'],
+              progress['medals'], progress['today_pass'], "".join(candidates))
+        if fp != getattr(self, "_last_progress_fp", None):
+            self.log(
+                f"[龙腾] 勋章={progress['medals']}，副本间免费补血次数="
+                f"{progress['life_chance']}，今日通关={progress['today_pass']}，"
+                f"进度：第 {progress['next_combat_index'] + 1}/17 场"
+                f"({'终局战(Boss)' if progress['next_combat_index'] >= 16 else '普通战'})，"
+                f"当前场次={progress['current_combat']}，"
+                f"候选妖怪={len(candidates)}只"
+            )
+            self.log("[龙腾] 候选列表：" + "、".join(candidates))
+            if wins:
+                self.log("[龙腾] 已胜场：" + "、".join(wins))
+            self._last_progress_fp = fp
 
         if self.dragon_state["auto_running"]:
             self.dragon_state["auto_running"] = False
