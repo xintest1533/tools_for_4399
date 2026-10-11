@@ -1927,7 +1927,9 @@ class KabuClient:
             self.dragon_query_progress()
         elif operation == 5 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
             if result == 4:
-                self.log("[龙腾] 一键连打：检测到阵亡妖怪需复活，发送复活请求", "USER")
+                # 补血回包提示"阵亡妖怪需要复活"但不带位置，遍历编队位置 0-5 逐个复活
+                self.dragon_state["dragon_revive_idx"] = 0
+                self.log("[龙腾] 一键连打：检测到阵亡妖怪需复活，遍历复活编队位置", "USER")
                 self.dragon_revive_monster(0)
             elif result == 5:
                 self.log("[龙腾] 一键连打：出战妖怪均已阵亡，直接查询下一关", "USER")
@@ -1935,12 +1937,27 @@ class KabuClient:
             else:
                 self.log("[龙腾] 一键连打：补血阶段完成，查询下一关", "USER")
                 self.dragon_query_progress()
-        elif operation == 6 and result == 0 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
-            self.log("[龙腾] 一键连打：复活成功，继续免费补血后推进", "USER")
-            self.dragon_medal_heal(False)
         elif operation == 6 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
-            self.log(f"[龙腾] 一键连打：复活不可用(result={result})，直接查询下一关", "WRAN")
-            self.dragon_query_progress()
+            idx = self.dragon_state.get("dragon_revive_idx", 0)
+            if result == 0:
+                self.dragon_state["dragon_revive_idx"] = -1
+                self.log("[龙腾] 一键连打：复活成功，继续免费补血后推进", "USER")
+                self.dragon_medal_heal(False)
+            elif result == 2:
+                # 该位置无需复活，尝试下一位置
+                nxt = idx + 1
+                if nxt <= 5:
+                    self.dragon_state["dragon_revive_idx"] = nxt
+                    self.log(f"[龙腾] 一键连打：位置{idx}无需复活，尝试位置{nxt}", "WRAN")
+                    self.dragon_revive_monster(nxt)
+                else:
+                    self.dragon_state["dragon_revive_idx"] = -1
+                    self.log("[龙腾] 一键连打：所有编队位置均已检查，查询下一关", "WRAN")
+                    self.dragon_query_progress()
+            else:
+                self.dragon_state["dragon_revive_idx"] = -1
+                self.log(f"[龙腾] 一键连打：复活不可用(result={result})，查询下一关", "WRAN")
+                self.dragon_query_progress()
         elif operation == 3 and self.dragon_state.get("auto_mode"):
             q = self.dragon_state.get("auto_lottery_queue") or []
             if q:
@@ -2125,10 +2142,9 @@ class KabuClient:
                     self.dragon_state["dragon_boss_retry"] = fails
                     if fails >= 3:
                         self.dragon_state["dragon_boss_retry"] = 0
-                        self.log("[龙腾] 终局战连续发起无响应，先补血+复活确保满血再重试(Boss战血量敏感)",
+                        self.log("[龙腾] 终局战连续发起无响应，先补血+遍历复活确保编队完整再重试(Boss战血量敏感)",
                                  "USER")
                         self.dragon_medal_heal(False)
-                        self.dragon_revive_monster(1)
                         return True
                 else:
                     self.dragon_state["dragon_boss_retry"] = 0
