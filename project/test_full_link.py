@@ -83,11 +83,43 @@ def probe_dragon(c: KabuClient, results: list) -> None:
         results.append({"op": "龙腾进副本/查进度", "status": "EXC", "detail": str(e)})
 
 
+def probe_dragon_battle(c: KabuClient, results: list) -> None:
+    """龙腾战斗链路探测（--battle）：进关卡 -> 发起普通战 -> 观察回合/技能/进度推进。
+    注意：会消耗账号 1 场今日战斗额度（每日 17 场）。"""
+    try:
+        c.dragon_goto_level(0)
+        time.sleep(1.5)
+        ok = c.dragon_start_battle(0)
+        if not ok:
+            results.append(_r("龙腾发起战斗", False, detail="发起失败（战斗中或前置不足）"))
+            return
+        results.append(_r("龙腾发起战斗", True, detail="已发送[2,1,0]普通战"))
+        time.sleep(6.0)
+        round_n = c.dragon_state.get("dragon_round", 0)
+        active = c.dragon_state.get("dragon_battle_active")
+        team = c.dragon_state.get("dragon_team") or []
+        results.append(_r(
+            "龙腾回合观察", True if round_n > 0 else "无回合回包",
+            detail=f"dragon_round={round_n} battle_active={active} 出战{len(team)}只（回包详见日志）",
+        ))
+        time.sleep(1.0)
+        c.dragon_query_progress()
+        time.sleep(1.0)
+        stage = c.dragon_state.get("current_stage")
+        cur = c.dragon_state.get("current_combat")
+        results.append(_r("龙腾进度推进检查", True,
+                          detail=f"current_stage={stage} current_combat={cur}"))
+    except Exception as e:  # noqa: BLE001
+        results.append({"op": "龙腾战斗链路", "status": "EXC", "detail": str(e)})
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="卡布西游全链路测试")
     ap.add_argument("--token", default="", help="4399 登录态 token（优先；缺省自动从 credentials.json 取）")
     ap.add_argument("--out", default="", help="报告输出路径，默认写 test_reports/")
     ap.add_argument("--shenshou", type=int, default=0, help="神兽园 shenshou_user_id（可选）")
+    ap.add_argument("--battle", action="store_true",
+                    help="发起1场龙腾普通战实测战斗链路（消耗今日1场额度）")
     args = ap.parse_args()
 
     report = {
@@ -119,6 +151,8 @@ def main() -> int:
                 report["results"].append(_r("登录", True))
                 probe_peiyu(c, report["results"], args.shenshou)
                 probe_dragon(c, report["results"])
+                if args.battle:
+                    probe_dragon_battle(c, report["results"])
     except Exception:  # noqa: BLE001
         report["results"].append({"op": "全链路", "status": "EXC", "detail": traceback.format_exc()})
     finally:
