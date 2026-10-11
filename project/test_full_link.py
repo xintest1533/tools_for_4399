@@ -102,12 +102,23 @@ def main() -> int:
         token = _resolve_token(args.token)
         if not c.connect():
             report["results"].append(_r("连接游戏服务器", False, detail="连接失败"))
-        elif not c.login(token):
-            report["results"].append(_r("登录", False, detail="token 无效或超时"))
         else:
-            report["results"].append(_r("登录", True))
-            probe_peiyu(c, report["results"], args.shenshou)
-            probe_dragon(c, report["results"])
+            try:
+                ok_login = c.login(token)
+            except ConnectionError as exc:
+                report["results"].append(_r(
+                    "登录", False,
+                    detail=f"凭证过期：{exc}。请重新抓取4399浏览器cookie后运行："
+                           "python login_4399.py --cookie '<新cookie>' --save",
+                ))
+                ok_login = False
+            if not ok_login:
+                if not any(r["op"] == "登录" for r in report["results"]):
+                    report["results"].append(_r("登录", False, detail="token 无效或超时"))
+            else:
+                report["results"].append(_r("登录", True))
+                probe_peiyu(c, report["results"], args.shenshou)
+                probe_dragon(c, report["results"])
     except Exception:  # noqa: BLE001
         report["results"].append({"op": "全链路", "status": "EXC", "detail": traceback.format_exc()})
     finally:

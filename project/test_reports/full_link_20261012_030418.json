@@ -1,0 +1,16 @@
+{
+  "ts": "2026-10-12 03:04:18",
+  "module": "全链路(培育/神兽园/龙腾)",
+  "results": [
+    {
+      "op": "登录",
+      "status": "FAIL",
+      "detail": "凭证过期：账号认证失败：服务端状态码 5。请重新抓取4399浏览器cookie后运行：python login_4399.py --cookie '<新cookie>' --save"
+    }
+  ],
+  "summary": {
+    "ok": 0,
+    "fail": 1
+  },
+  "unparsed_opcodes": {}
+}
