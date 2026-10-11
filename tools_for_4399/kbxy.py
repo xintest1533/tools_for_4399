@@ -800,6 +800,9 @@ class KabuClient:
                 self.log("[龙腾] 普通战我方宠全倒，等待结算后补血/复活恢复出战怪续战", "USER")
             return
         target = switch_ids[nxt]
+        pets0 = self.dragon_state.get("dragon_pets") or []
+        if nxt < len(pets0) and pets0[nxt].get("spirit_id"):
+            target = pets0[nxt]["spirit_id"]   # 切换操作(1)参数须为 spirit_id(见BattleControl:435 obj.spiritid)
         self.dragon_state["dragon_skill_idx"] = nxt
         self.dragon_state["dragon_sub_idx"] = 0
         self.log(f"[龙腾] 宠倒下，切换到候选宠 #{nxt} (ID={target})", "WRAN")
@@ -942,9 +945,12 @@ class KabuClient:
             if nxt < len(switch_ids) and switch_ids[nxt]:
                 self.dragon_state["dragon_skill_idx"] = nxt
                 self.dragon_state["dragon_sub_idx"] = 0
+                sw = switch_ids[nxt]
+                if nxt < len(pets) and pets[nxt].get("spirit_id"):
+                    sw = pets[nxt]["spirit_id"]
                 self.log(f"[龙腾] 当前宠血量归零，兜底切换到候选宠 #{nxt} "
                          f"(UID={switch_ids[nxt]})", "WRAN")
-                self.send_cmd(OP_BATTLE_USER_OP, 1, [switch_ids[nxt]])
+                self.send_cmd(OP_BATTLE_USER_OP, 1, [sw])
                 self.send_cmd(OP_DRAGON_ROUND_ADVANCE, 0)
                 self.dragon_state["dragon_waiting"] = "await_advance"
                 return
@@ -976,6 +982,8 @@ class KabuClient:
             self.dragon_state["dragon_sub_idx"] = 0
             switch_ids = self.dragon_state.get("dragon_switch_ids") or []
             target = switch_ids[idx] if idx < len(switch_ids) else 0
+            if idx < len(pets) and pets[idx].get("spirit_id"):
+                target = pets[idx]["spirit_id"]   # 切换操作(1)须传 spirit_id
             self.log(f"[决策] 切换到候选宠 #{idx} (ID={target})", "USER")
             self.send_cmd(OP_BATTLE_USER_OP, 1, [target])
             self.send_cmd(OP_DRAGON_ROUND_ADVANCE, 0)
