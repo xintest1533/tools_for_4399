@@ -2255,6 +2255,10 @@ class KabuClient:
                         return True
                 else:
                     self.dragon_state["dragon_boss_retry"] = 0
+                # 开战前必须先进关卡(1186183)，否则服务端回"没有可战斗的妖怪"(mParams=2)
+                if not self.dragon_state.get("dragon_level_entered"):
+                    self.dragon_goto_level(0)
+                    return True
                 self.log("[龙腾] 候选序列已确认，发起战斗", "USER")
                 self.dragon_start_battle(battle_type)
                 return True
