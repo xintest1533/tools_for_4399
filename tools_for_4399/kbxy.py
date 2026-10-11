@@ -1710,6 +1710,14 @@ class KabuClient:
                     self.dragon_state["dragon_combat_armed"] = True
                     self.dragon_state["dragon_combat_armed_at"] = time.monotonic()
                     return
+                # 龙腾副本需先"查看候选"(操作4)确认出战序列，服务端才接受开战；
+                # 操作4通常无回包，由 dragon_check_stuck 兜底补发战斗。
+                if not self.dragon_state.get("dragon_candidate_viewed"):
+                    self.dragon_state["dragon_candidate_viewed"] = True
+                    self.dragon_state["dragon_candidate_viewed_at"] = time.monotonic()
+                    self.log("[龙腾] 出战怪已确认，先查看候选序列，随后发起战斗", "USER")
+                    self.send_cmd(OP_DRAGON_ACTION, DRAGON_COPY_MPARAMS, [4, 0, 0])
+                    return
                 battle_type = int(progress["next_combat_index"] >= 16)
                 battle_name = "终局战" if battle_type else "普通战"
                 self.log(f"[龙腾] 出战妖怪已就绪（进度推进/候选池有数据），自动选择：{battle_name}")
@@ -1884,6 +1892,7 @@ class KabuClient:
         self.dragon_state["dragon_level_entered"] = False
         self.dragon_state["dragon_goto_wait"] = False
         self.dragon_state["dragon_combat_armed"] = False
+        self.dragon_state["dragon_candidate_viewed"] = False
         return self.send_cmd(OP_DRAGON_ENTER, DRAGON_COPY_MPARAMS, [0])
 
     def dragon_get_selected_monsters(self):
@@ -1993,6 +2002,15 @@ class KabuClient:
                 return True
         # ② 战斗动作卡死
         if not self.dragon_state.get("dragon_battle_active"):
+            # 出战怪已确认、候选(操作4)已发出但战斗未发起：补发战斗
+            if (self.dragon_state.get("dragon_candidate_viewed")
+                    and self.dragon_state.get("dragon_combat_armed")
+                    and self.dragon_state.get("in_dragon")
+                    and not self.dragon_state.get("dragon_refresh_needed")):
+                battle_type = int(self.dragon_state.get("next_combat_index", 0) >= 16)
+                self.log("[龙腾] 候选序列已确认，发起战斗", "USER")
+                self.dragon_start_battle(battle_type)
+                return True
             return False
         waiting = self.dragon_state.get("dragon_waiting", "idle")
         last = self.dragon_state.get("dragon_action_at")
