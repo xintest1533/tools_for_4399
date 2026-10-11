@@ -844,13 +844,27 @@ class KabuClient:
         for si, (sid, pp, mpp) in enumerate(sk):
             if pp <= 0:
                 continue
-            # 技能威力估计：技能序号越小通常威力越高（第1技能常为大招/高倍率）
-            power = 70.0 - si * 8.0
-            s = power + min(pp, mpp) * 0.8
+            info = self._skill_info(sid)
+            power = info.get("power") or 0
+            effect = info.get("effect") or 0
+            s_elem = info.get("elem", 0)
+            if power > 0:
+                # 真实伤害判定：威力+效果共同决定，优先放伤害最高的技能
+                base = power * 0.6 + effect * 0.4
+            else:
+                base = 70.0 - si * 8.0   # 兜底：技能序号越小通常威力越高
+            s = base
+            # 技能自身属性克制敌方：伤害显著加成（优先克制技能）
+            sk_bonus = self._element_adv(s_elem, enemy_ele) if s_elem else 0.0
+            if sk_bonus > 0:
+                s += sk_bonus * 40.0
+                self.log(f"[决策] 技能{sid}({self._skill_name(sid) or '?'},"
+                         f"威力{power}/效果{effect}) 属性克制敌方，优先释放", "INFO")
+            s += min(pp, mpp) * 0.8
             if cur_ratio < 0.35:
                 s -= 10.0          # 我方残血：少用低效技能，尽快输出
             if cur_bonus:
-                s += cur_bonus * 35.0   # 我方属性克制敌方：显著加分
+                s += cur_bonus * 15.0   # 出战怪属性克制（技能属性未知时退化参考）
             if enemy_jifa:
                 s += 50.0               # 敌方首发激发怪：强攻秒杀，不可耗PP
             if enemy_ratio < 0.35:
@@ -977,6 +991,48 @@ class KabuClient:
         if not nm:
             return False
         return any(k in nm or nm in k for k in JIFA_NAMES)
+
+    def _load_skill_table(self):
+        """从 skill.xml 加载技能表（技能ID->威力/效果/属性/PP上限/名称），懒加载。
+        用于战斗决策按真实伤害判定技能，而非按序号估计。"""
+        self._skill_table = {}
+        candidates = []
+        if getattr(sys, "_MEIPASS", None):
+            candidates.append(os.path.join(sys._MEIPASS, "skill.xml"))
+        candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "skill.xml"))
+        candidates.append(os.path.join(os.getcwd(), "skill.xml"))
+        candidates.append("skill.xml")
+        for path in candidates:
+            try:
+                if not os.path.exists(path):
+                    continue
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    txt = f.read()
+                for m in re.finditer(
+                    r'<skill>\s*<idx>(\d+)</idx>\s*<name>([^<]*)</name>'
+                    r'.*?<power>(-?\d+)</power>.*?<effect>(-?\d+)</effect>'
+                    r'.*?<elem>(\d+)</elem>.*?<count>(\d+)</count>',
+                    txt, re.S):
+                    self._skill_table[int(m.group(1))] = {
+                        "name": m.group(2).strip(),
+                        "power": int(m.group(3)),
+                        "effect": int(m.group(4)),
+                        "elem": int(m.group(5)),
+                        "count": int(m.group(6)),
+                    }
+                if self._skill_table:
+                    self.log(f"已加载技能表 {len(self._skill_table)} 条（{path}）", "INFO")
+                return
+            except Exception as exc:
+                self.log(f"加载技能表失败：{exc}", "WRAN")
+
+    def _skill_info(self, sid: int):
+        if self._skill_table is None:
+            self._load_skill_table()
+        return (self._skill_table or {}).get(sid) or {}
+
+    def _skill_name(self, sid: int) -> str:
+        return self._skill_info(sid).get("name", "")
 
     def _sid_label(self, sid: int) -> str:
         nm = self._spirit_name(sid)
