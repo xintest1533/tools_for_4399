@@ -72,3 +72,5 @@ data_data_unzip/
 核心文档/
 *.spec
 上传PyPI.bat
+
+*.log
