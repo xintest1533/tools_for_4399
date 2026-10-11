@@ -807,8 +807,7 @@ class KabuClient:
         self.dragon_state["dragon_sub_idx"] = 0
         self.log(f"[龙腾] 宠倒下，切换到候选宠 #{nxt} (ID={target})", "WRAN")
         self.send_cmd(OP_BATTLE_USER_OP, 1, [target])
-        self.send_cmd(OP_DRAGON_ROUND_ADVANCE, 0)
-        self.dragon_state["dragon_waiting"] = "await_advance"
+        self.dragon_state["dragon_waiting"] = "await_attack"
 
     def _element_adv(self, att, dfd):
         if att not in ELEMENT_NODE or dfd not in ELEMENT_NODE:
@@ -951,8 +950,7 @@ class KabuClient:
                 self.log(f"[龙腾] 当前宠血量归零，兜底切换到候选宠 #{nxt} "
                          f"(UID={switch_ids[nxt]})", "WRAN")
                 self.send_cmd(OP_BATTLE_USER_OP, 1, [sw])
-                self.send_cmd(OP_DRAGON_ROUND_ADVANCE, 0)
-                self.dragon_state["dragon_waiting"] = "await_advance"
+                self.dragon_state["dragon_waiting"] = "await_attack"
                 return
             if self._dragon_is_boss_stage():
                 self.log("[龙腾] BOSS 战当前宠倒下且无后备，撤离副本", "ERROR")
@@ -986,8 +984,8 @@ class KabuClient:
                 target = pets[idx]["spirit_id"]   # 切换操作(1)须传 spirit_id
             self.log(f"[决策] 切换到候选宠 #{idx} (ID={target})", "USER")
             self.send_cmd(OP_BATTLE_USER_OP, 1, [target])
-            self.send_cmd(OP_DRAGON_ROUND_ADVANCE, 0)
-            self.dragon_state["dragon_waiting"] = "await_advance"
+            # 切换后不立即推进：等回合结果回包(1317122)确认换人(与BattleControl:435一致，切换后等服务器)
+            self.dragon_state["dragon_waiting"] = "await_attack"
         elif action == "refresh":
             self.log("[决策] 触发刷新（重新登录继续打，无损）", "USER")
             self.dragon_state["dragon_refresh_needed"] = True
