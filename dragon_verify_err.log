@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "C:\Users\Administrator\Desktop\卡布西游脱机助手\test_dragon_full.py", line 28, in <module>
+    client.login(auth, timeout=30, server_id=None, server_mode="auto")
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\Desktop\卡布西游脱机助手\tools_for_4399\kbxy.py", line 283, in login
+    raise ConnectionError(self.login_error)
+ConnectionError: 连接在登录完成前断开
