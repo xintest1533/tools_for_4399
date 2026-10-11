@@ -812,7 +812,8 @@ class KabuClient:
             return 0.0
         a = ELEMENT_NODE[att].get(dfd, 1.0)
         b = ELEMENT_NODE[dfd].get(att, 1.0)
-        return a if a > b else 0.0
+        # 克制为正(打它>被它打)，抵抗为负(打它<被它打)，持平为0
+        return a - b
 
     def _dragon_decide_action(self):
 
@@ -870,6 +871,10 @@ class KabuClient:
                 s += sk_bonus * 40.0
                 self.log(f"[决策] 技能{sid}({self._skill_name(sid) or '?'},"
                          f"威力{power}/效果{effect}) 属性克制敌方，优先释放", "INFO")
+            elif sk_bonus < 0:
+                s += sk_bonus * 40.0   # 技能属性被敌方抵抗：伤害减半，降权避免选中
+                self.log(f"[决策] 技能{sid}({self._skill_name(sid) or '?'},"
+                         f"威力{power}/效果{effect}) 属性被敌方抵抗，降权", "INFO")
             s += min(pp, mpp) * 0.8
             if cur_ratio < 0.35:
                 s -= 10.0          # 我方残血：少用低效技能，尽快输出
@@ -887,9 +892,13 @@ class KabuClient:
             ratio = pets[idx]["hp"] / max(pets[idx]["maxhp"], 1)
             s = 10.0 + ratio * 60.0
             ele = pets[idx].get("element", 0)
-            if self._element_adv(ele, enemy_ele) > 0:
+            adv = self._element_adv(ele, enemy_ele)
+            if adv > 0:
                 s += 120.0
                 self.log(f"[决策] 候选宠#{idx}(elem={ele}) 克制敌方(elem={enemy_ele})，优先上阵", "INFO")
+            elif adv < 0:
+                s += adv * 40.0   # 候选宠被敌方克制：抵抗降权，避免切到被克的宠送死
+                self.log(f"[决策] 候选宠#{idx}(elem={ele}) 被敌方(elem={enemy_ele})克制，降权", "INFO")
             if cur_ratio < 0.40:
                 s += 35.0          # 我方残血更早换宠，避免送死
             candidates.append((f"换宠#{idx}", s, ("switch", idx)))
