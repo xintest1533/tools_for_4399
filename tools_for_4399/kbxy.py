@@ -1187,7 +1187,9 @@ class KabuClient:
             self.dragon_state["dragon_waiting"] = "idle"
 
     def _update_dragon_hp_from_round(self, body: bytes):
-        """从战斗回合回包同步我方宠血量，用于宠死即切兜底。"""
+        """从战斗回合回包同步我方宠血量 + 技能PP，用于宠死即切兜底与技能决策。
+        注意：1317122 的注册 handler 是 _handle_dragon_round_result（龙腾专用），
+        普通战斗的 _sync_dragon_battle_state 不会被龙腾路径调用——PP 扣减必须在此处做。"""
         if not body:
             return
         try:
@@ -1195,7 +1197,7 @@ class KabuClient:
             if has_battle != 1:
                 return
             attacker_sid, offset = self._read_int(body, offset)
-            _, offset = self._read_int(body, offset)  # skill_id
+            skill_id, offset = self._read_int(body, offset)
             defender_sid, offset = self._read_int(body, offset)
             miss, offset = self._read_int(body, offset)
             if miss != 0:
@@ -1211,6 +1213,17 @@ class KabuClient:
                 p["hp"] = attacker_hp
             if p.get("sid") == defender_sid:
                 p["hp"] = defender_hp
+        # 技能PP扣减：攻击方本回合使用的技能（PP耗尽后决策自动跳过换技能）
+        idx = next((i for i, p in enumerate(pets) if p.get("sid") == attacker_sid), None)
+        if idx is not None:
+            skillsets = self.dragon_state.get("dragon_skills") or []
+            if idx < len(skillsets):
+                sk = list(skillsets[idx])
+                for k, (sid2, pp, mpp) in enumerate(sk):
+                    if sid2 == skill_id:
+                        sk[k] = (sid2, max(0, pp - 1), mpp)
+                        break
+                skillsets[idx] = sk
         pi = min(self.dragon_state.get("dragon_skill_idx", 0), len(pets) - 1)
         if pets and pi < len(pets) and pets[pi].get("hp", 1) <= 0:
             self.dragon_state["dragon_down_count"] = (
