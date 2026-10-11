@@ -786,7 +786,9 @@ class KabuClient:
                 self.dragon_exit_copy()
             else:
                 self.dragon_state["dragon_waiting"] = "idle"
-                self.log("[龙腾] 普通战我方宠全倒，不退出副本，等待该场结束推进", "WRAN")
+                # 出战怪全阵亡：标记待恢复，结算后由 watchdog 发起补血/复活，否则后续战斗报"没有可战斗的妖怪"
+                self.dragon_state["dragon_recover_pending"] = True
+                self.log("[龙腾] 普通战我方宠全倒，等待结算后补血/复活恢复出战怪续战", "USER")
             return
         target = switch_ids[nxt]
         self.dragon_state["dragon_skill_idx"] = nxt
@@ -2011,6 +2013,15 @@ class KabuClient:
         if self.dragon_state.get("dragon_refresh_needed"):
             self.dragon_refresh_session()
             return True
+        # ③ 出战怪全倒恢复：普通战全倒后补血/复活恢复出战怪再续战
+        # （否则出战怪持续阵亡，后续战斗服务端回"没有可战斗的妖怪"）
+        if self.dragon_state.get("dragon_recover_pending"):
+            if (not self.battle_state["active"] and self.dragon_state.get("in_dragon")
+                    and self.connected):
+                self.dragon_state["dragon_recover_pending"] = False
+                self.log("[龙腾] 出战怪全倒，发起补血恢复（阵亡则先复活）", "USER")
+                self.dragon_medal_heal(False)
+                return True
         # ② 抽取卡死：发空body抽取后超时无回包（今日已抽/重复抽取被服务端静默忽略）→ 重查进度确认出战
         if self.dragon_state.get("auto_draw_wait"):
             last = self.dragon_state.get("dragon_draw_at")
