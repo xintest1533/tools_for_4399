@@ -841,8 +841,8 @@ class KabuClient:
         jifa_pets = self.dragon_state.get("dragon_jifa_pets") or []
         enemy_pp_depleted = True
         for e in enemies:
-            sk = e.get("skills") or []
-            if any(pp > 0 for _, pp, _ in sk):
+            esk = e.get("skills") or []   # 勿用 sk：会覆盖上方当前宠技能表，导致从敌方技能里决策
+            if any(pp > 0 for _, pp, _ in esk):
                 enemy_pp_depleted = False
                 break
 
@@ -949,6 +949,15 @@ class KabuClient:
         action, payload, conf = self._dragon_decide_action()
         if action == "skill":
             sid = payload
+            # 防御：确保 sid 属于当前上场宠的技能表（个别宠仅3技能）。
+            # 若换宠不同步导致 sid 越界/缺失，回退到当前宠首个可用技能，绝不释放宠物没有的技能。
+            sets2 = self.dragon_state.get("dragon_skills") or []
+            pi2 = min(self.dragon_state.get("dragon_skill_idx", 0), len(sets2) - 1)
+            if pi2 < len(sets2):
+                avail = [s[0] for s in sets2[pi2] if s[1] > 0]
+                if avail and sid not in avail:
+                    sid = avail[0]
+                    self.log(f"[决策] 防御：技能不在当前宠技能表，回退用技能{sid}", "WRAN")
             self.dragon_state["dragon_waiting"] = "await_attack"
             self.send_cmd(OP_BATTLE_USER_OP, 0, [2, sid])
         elif action == "switch":
