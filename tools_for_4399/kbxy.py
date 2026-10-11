@@ -1715,6 +1715,9 @@ class KabuClient:
                 if not self.dragon_state.get("dragon_candidate_viewed"):
                     self.dragon_state["dragon_candidate_viewed"] = True
                     self.dragon_state["dragon_candidate_viewed_at"] = time.monotonic()
+                    # 保持自动流程：发操作4后由 dragon_check_stuck 兜底补发战斗，
+                    # 若 auto_running 为 False 会被 watchdog 重进副本中断战斗序列
+                    self.dragon_state["auto_running"] = True
                     self.log("[龙腾] 出战怪已确认，先查看候选序列，随后发起战斗", "USER")
                     self.send_cmd(OP_DRAGON_ACTION, DRAGON_COPY_MPARAMS, [4, 0, 0])
                     return
@@ -1819,8 +1822,9 @@ class KabuClient:
         self.log(f"[龙腾] {action}回包：{result_text}{suffix}", level)
 
         if operation == 1 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
-            # 出战查询确认出战怪就绪后，查询进度发起战斗
+            # 出战查询确认出战怪就绪后，保持自动流程并查询进度发起战斗
             self.dragon_state["dragon_combat_armed"] = True
+            self.dragon_state["auto_running"] = True
             self.log("[龙腾] 出战妖怪确认就绪，查询进度发起战斗", "USER")
             self.dragon_query_progress()
         elif operation == 5 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
