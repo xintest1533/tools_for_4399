@@ -2333,7 +2333,7 @@ class KabuClient:
         # 编队排序（所有路径统一执行一次）：龙腾为服务器按编队自动上阵的自动战斗，
         # 把克制妖系(黑煞狩/最终战常见)的存活宠换到编队第1位，服务器自动先上克制宠，
         # 提升最终战胜率。每个会话只排一次。
-        if (self.dragon_state.get("dragon_combat_armed")
+        if (self.dragon_state.get("player_monster_info")
                 and not self.dragon_state.get("dragon_ordered")):
             self.dragon_state["dragon_ordered"] = True
             self.dragon_order_counter_first(5)
