@@ -106,6 +106,17 @@ def main() -> int:
         except Exception:  # noqa: BLE001
             pass
 
+    # 未解析回包统计（作为改进建议沉淀进测试产物）
+    report["unparsed_opcodes"] = (
+        c.get_unparsed_opcodes() if hasattr(c, "get_unparsed_opcodes") else {}
+    )
+    unparsed_n = len(report["unparsed_opcodes"])
+    if unparsed_n:
+        report["improvements"] = (
+            f"存在 {unparsed_n} 类未结构化解析的回包，建议下轮开发为高频 opcode"
+            " 增加结构化解析器（先覆盖出现时机明确的 1315883/1317360/1317152 等）"
+        )
+
     for r in report["results"]:
         if r.get("status") in ("OK", "SKIP"):
             report["summary"]["ok"] += 1

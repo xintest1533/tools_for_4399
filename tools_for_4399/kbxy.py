@@ -123,6 +123,32 @@ OP_GATEWAY_INDULGE_BACK = 1315586
 OP_REMOVE_PLAYER_BACK = 1315328
 OP_SCREEN_BROADCAST_BACK = 1316479
 
+# ---- 登录/进场景后高频出现的回包（尚未完全结构化，先命名+摘要识别，抑制刷屏）----
+OP_SERVER_ENTER_BACK = 1315883             # 选择服务器后回包(mP=4 服务器信息)
+OP_SYSTEM_SWITCH_BACK = 1318446            # 系统/功能开关配置列表(mP=18)
+OP_ENTER_SCENE_CONFIRM_BACK = 1317360      # 进场景完成确认(mP=0, 8字节)
+OP_SCENE_READY_BACK_1 = 1317152            # 进场景后系统就绪(背包类)
+OP_SCENE_READY_BACK_2 = 1317170            # 进场景后系统就绪(精灵类)
+OP_SCENE_READY_BACK_3 = 1317176            # 进场景后系统就绪(任务类)
+OP_COPY_READY_BACK = 1316483               # 进入副本后就绪确认(mP=0)
+OP_TIP_BROADCAST_BACK = 1317330            # 提示/广播(含文本)
+OP_PLAYER_INFO_BROADCAST_BACK = 1316392    # 玩家信息广播(mP=玩家ID)
+OP_PLAYER_STATUS_BACK = 1315384            # 玩家状态/在线信息回包(mP=玩家ID)
+
+# 未解析回包的语义命名表（仅供日志摘要，不阻塞功能）
+_OP_UNPARSED_NAMES: "dict[int, str]" = {
+    OP_SERVER_ENTER_BACK: "选择服务器回包",
+    OP_SYSTEM_SWITCH_BACK: "系统开关配置",
+    OP_ENTER_SCENE_CONFIRM_BACK: "进场景确认",
+    OP_SCENE_READY_BACK_1: "场景就绪-背包",
+    OP_SCENE_READY_BACK_2: "场景就绪-精灵",
+    OP_SCENE_READY_BACK_3: "场景就绪-任务",
+    OP_COPY_READY_BACK: "副本就绪",
+    OP_TIP_BROADCAST_BACK: "文本提示广播",
+    OP_PLAYER_INFO_BROADCAST_BACK: "玩家信息广播",
+    OP_PLAYER_STATUS_BACK: "玩家状态回包",
+}
+
 class KabuClient:
     def __init__(self, host: str, log_callback=None, *, port: Optional[int] = None):
         self.host = host
@@ -135,6 +161,8 @@ class KabuClient:
         self.current_scene_id: Optional[int] = None
         self._broadcast_activity_hinted = False
         self.recv_buffer = b""
+        self.unparsed_opcodes: "dict[int, dict]" = {}
+        self._unparsed_samples: "dict[int, str]" = {}
         self.msg_handlers: Dict[int, Callable[[int, bytes], None]] = {
             OP_CHECK_ACCOUNT_BACK: self._handle_account_response,
             OP_GET_WORLD_NUM_BACK: self._handle_world_num_response,
@@ -310,6 +338,13 @@ class KabuClient:
                 raise TypeError(f"不支持的协议字段类型: {type(v).__name__}")
         return ba
 
+    def get_unparsed_opcodes(self) -> dict:
+        """返回本会话中未能结构化解析的回包统计（opcode -> {mP,count,bytes,name,sample}）。"""
+        out: "dict[int, dict]" = {}
+        for op, rec in self.unparsed_opcodes.items():
+            out[op] = {**rec, "sample": self._unparsed_samples.get(op, "")}
+        return out
+
     def send_cmd(self, opcode: int, m_params: int = 0, body_list: List[Any] = None) -> bool:
         if not self.connected:
             self.log("连接断开，正在尝试自动重连", "WRAN")
@@ -393,13 +428,22 @@ class KabuClient:
             self.log(f"收到回包 opcode={opcode}, mParams={m_params}")
             handler = self.msg_handlers.get(opcode)
             if handler is None:
-                preview = body[:96].hex(" ")
-                truncated = "（已截断）" if len(body) > 96 else ""
-                self.log(
-                    f"尚无结构化解析器 opcode={opcode} mP={m_params}，"
-                    f"回包原始数据 {len(body)} 字节：{preview}{truncated}",
-                    "WRAN",
-                )
+                name = _OP_UNPARSED_NAMES.get(opcode, "")
+                rec = self.unparsed_opcodes.setdefault(opcode, {
+                    "mP": m_params, "count": 0, "bytes": len(body), "name": name,
+                })
+                rec["count"] += 1
+                rec["bytes"] = len(body)
+                if len(self._unparsed_samples) < 24:
+                    self._unparsed_samples[opcode] = body[:64].hex(" ")
+                if rec["count"] == 1:
+                    preview = body[:64].hex(" ")
+                    self.log(
+                        f"未解析回包 opcode={opcode}"
+                        f"{(' [' + name + ']') if name else ''} mP={m_params} "
+                        f"长度={len(body)} 首64B={preview}",
+                        "WRAN",
+                    )
                 continue
             try:
                 handler(m_params, body)
