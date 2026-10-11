@@ -62,6 +62,8 @@ OP_DRAGON_QUERY = 1186178
 OP_DRAGON_QUERY_BACK = 1317250
 OP_DRAGON_ACTION = 1186184
 OP_DRAGON_ACTION_BACK = 1317251
+OP_DRAGON_GOTO_LEVEL = 1186183
+OP_DRAGON_GOTO_LEVEL_BACK = 1317255
 OP_BATTLE_USER_OP = 1186050
 OP_BATTLE_START_BACK = 1317120
 OP_BATTLE_ROUND_START_BACK = 1317121
@@ -95,6 +97,14 @@ OP_GET_PACKAGE_BACK = 1314833
 PACKAGE_ALL_CATEGORIES = 0xFFFFFFFF
 PEIYU_FOOD_CATEGORY = 300030
 
+# 龙腾盛会激发怪：抽到的妖怪自带强化自身属性技能，耗完敌方PP后上场叠满6级属性推队清场。
+# 敌方首发若为激发怪（如幻咒王），必须直接击杀、不能耗PP，否则被叠属性翻车。
+JIFA_NAMES = (
+    "骷髅古皇", "冰龙神", "刑天", "夜鹰猎人", "火云疾风兽",
+    "傲雪悍将", "剧毒星魂兽", "结尾猴", "草菇", "凌鱼喵士",
+    "飞兔仙子", "小红豆", "妖狮",
+)
+
 OP_CULTIVATE_LIST = 1187329
 OP_CULTIVATE_PREVIEW = 1187120
 OP_CULTIVATE_PREVIEW_BACK = 1330480
@@ -123,6 +133,7 @@ class KabuClient:
         self.logged_in = False
         self.in_scene = False
         self.current_scene_id: Optional[int] = None
+        self._broadcast_activity_hinted = False
         self.recv_buffer = b""
         self.msg_handlers: Dict[int, Callable[[int, bytes], None]] = {
             OP_CHECK_ACCOUNT_BACK: self._handle_account_response,
@@ -136,6 +147,7 @@ class KabuClient:
             OP_BATTLE_END_BACK: self._handle_battle_end,
             OP_DRAGON_QUERY_BACK: self._handle_dragon_progress_response,
             OP_DRAGON_ACTION_BACK: self._handle_dragon_action_response,
+            OP_DRAGON_GOTO_LEVEL_BACK: self._handle_dragon_goto_level_response,
             OP_DRAGON_ENTER_BACK: self._handle_dragon_enter_response,
             OP_DRAGON_ROUND_RESULT_BACK: self._handle_dragon_round_result,
             OP_DRAGON_MONSTER_DOWN_BACK: self._handle_dragon_monster_down,
@@ -682,6 +694,32 @@ class KabuClient:
         self.dragon_state["dragon_down_count"] = 0
         self.dragon_state["dragon_enemy_alive"] = len(enemies)
         self.dragon_state["dragon_refresh_needed"] = False
+        # 激发怪识别：敌方首发激发怪须直接击杀不可耗PP；我方激发怪在敌方PP耗尽后上阵清场
+        enemy_jifa = []
+        jifa_pets = []
+        for e in enemies:
+            enm = self._spirit_name(e.get("spirit_id", 0))
+            if enm and self._is_jifa_name(enm):
+                enemy_jifa.append(enm)
+        for i, p in enumerate(pets):
+            pnm = self._spirit_name(p.get("spirit_id", 0))
+            if pnm and self._is_jifa_name(pnm):
+                jifa_pets.append(i)
+        self.dragon_state["dragon_enemy_jifa"] = bool(enemy_jifa)
+        self.dragon_state["dragon_jifa_pets"] = jifa_pets
+        if enemy_jifa:
+            self.log(f"[龙腾] 敌方首发为激发怪：{'、'.join(enemy_jifa)}，必须直接击杀，不可耗PP", "USER")
+        if jifa_pets:
+            self.log(f"[龙腾] 我方候选宠 #{jifa_pets} 为激发怪，敌方PP耗尽后优先上阵清场", "USER")
+        # 黑白煞 BOSS 识别：终局战黑煞狩(妖系法术)/白煞武(冰系物理)，提示按克制应对
+        boss_heibai = []
+        for e in enemies:
+            enm = self._spirit_name(e.get("spirit_id", 0))
+            if enm and ("黑煞" in enm or "白煞" in enm):
+                boss_heibai.append(enm)
+        if boss_heibai:
+            self.log(f"[龙腾] 检测到黑白煞BOSS：{'、'.join(boss_heibai)}，"
+                     f"按克制上阵应对（黑煞狩用魔/雷，白煞武用火/机械/圣）", "USER")
         enemy_desc = "、".join(
             f"[{e['element']}#{e['spirit_id']} hp{e['hp']}]" for e in enemies
         ) or "无"
@@ -726,6 +764,10 @@ class KabuClient:
                 pos = idx + 1
         return skillsets, switch_ids, pets
 
+    def _dragon_is_boss_stage(self):
+        """当前是否 BOSS 终局战（第17场，next_combat_index>=16）。"""
+        return self.dragon_state.get("current_stage", 0) >= 16
+
     def _handle_dragon_monster_down(self, m_params: int, _body: bytes):
         if not self.dragon_state.get("dragon_battle_active"):
             return
@@ -738,9 +780,13 @@ class KabuClient:
         down = self.dragon_state["dragon_down_count"]
         self.log(f"[龙腾] 我方宠倒下（累计 {down} 只）", "WRAN")
         if nxt >= len(switch_ids):
-            self.log("[龙腾] 我方出战宠全部倒下，退出副本", "ERROR")
-            self.dragon_state["dragon_refresh_needed"] = True
-            self.dragon_exit_copy()
+            if self._dragon_is_boss_stage():
+                self.log("[龙腾] BOSS 战我方宠全倒，撤离副本", "ERROR")
+                self.dragon_state["dragon_refresh_needed"] = True
+                self.dragon_exit_copy()
+            else:
+                self.dragon_state["dragon_waiting"] = "idle"
+                self.log("[龙腾] 普通战我方宠全倒，不退出副本，等待该场结束推进", "WRAN")
             return
         target = switch_ids[nxt]
         self.dragon_state["dragon_skill_idx"] = nxt
@@ -779,6 +825,16 @@ class KabuClient:
         cur_ele = pets[pi]["element"] if pi < len(pets) else 0
         cur_bonus = self._element_adv(cur_ele, enemy_ele)
 
+        # 激发怪策略：敌方首发激发怪须强攻秒杀(不可耗PP)；敌方PP耗尽后优先上阵我方激发怪清场
+        enemy_jifa = bool(self.dragon_state.get("dragon_enemy_jifa"))
+        jifa_pets = self.dragon_state.get("dragon_jifa_pets") or []
+        enemy_pp_depleted = True
+        for e in enemies:
+            sk = e.get("skills") or []
+            if any(pp > 0 for _, pp, _ in sk):
+                enemy_pp_depleted = False
+                break
+
         candidates = []
         for si, (sid, pp, mpp) in enumerate(sk):
             if pp <= 0:
@@ -788,6 +844,8 @@ class KabuClient:
                 s -= 12.0
             if cur_bonus:
                 s += cur_bonus * 30.0
+            if enemy_jifa:
+                s += 40.0
             candidates.append((f"技能{sid}", s, ("skill", sid)))
         switch_ids = self.dragon_state.get("dragon_switch_ids") or []
         for idx in range(pi + 1, len(sets)):
@@ -802,6 +860,19 @@ class KabuClient:
             if cur_ratio < 0.25:
                 s += 30.0
             candidates.append((f"换宠#{idx}", s, ("switch", idx)))
+
+        # 敌方PP已耗尽：优先上阵我方激发怪（叠满属性直接推队清场）
+        if enemy_pp_depleted and jifa_pets:
+            for idx in jifa_pets:
+                if idx <= pi or idx >= len(pets):
+                    continue
+                if pets[idx]["hp"] <= 0:
+                    continue
+                nm = self._spirit_name(pets[idx].get("spirit_id", 0))
+                self.log(f"[决策] 敌方PP已耗尽，上阵激发怪#{idx}({nm or '?'})清场", "USER")
+                return ("switch", idx, 0.95)
+            if pi in jifa_pets:
+                self.log("[决策] 敌方PP已耗尽，当前宠即激发怪，保持输出叠属性", "USER")
 
         if not candidates:
             self.log("[决策] 无可执行候选（当前宠技能全耗），切换候选宠兜底", "WRAN")
@@ -820,6 +891,7 @@ class KabuClient:
         return best[2] + (conf,)
 
     def _dragon_round_action(self):
+        self.dragon_state["dragon_action_at"] = time.monotonic()
         pets = self.dragon_state.get("dragon_pets") or []
         switch_ids = self.dragon_state.get("dragon_switch_ids") or []
         pi = min(self.dragon_state.get("dragon_skill_idx", 0), len(pets) - 1)
@@ -834,9 +906,13 @@ class KabuClient:
                 self.send_cmd(OP_DRAGON_ROUND_ADVANCE, 0)
                 self.dragon_state["dragon_waiting"] = "await_advance"
                 return
-            self.log("[龙腾] 当前宠倒下且无候选可切，触发退出副本", "ERROR")
-            self.dragon_state["dragon_refresh_needed"] = True
-            self.dragon_exit_copy()
+            if self._dragon_is_boss_stage():
+                self.log("[龙腾] BOSS 战当前宠倒下且无后备，撤离副本", "ERROR")
+                self.dragon_state["dragon_refresh_needed"] = True
+                self.dragon_exit_copy()
+            else:
+                self.dragon_state["dragon_waiting"] = "idle"
+                self.log("[龙腾] 普通战当前宠倒下且无后备，不退出副本，等待该场自然结束", "WRAN")
             return
         action, payload, conf = self._dragon_decide_action()
         if action == "skill":
@@ -886,6 +962,12 @@ class KabuClient:
             self._load_spirit_names()
         nm = (self._spirit_names or {}).get(sid)
         return nm if nm else ""
+
+    def _is_jifa_name(self, nm: str) -> bool:
+        """妖怪名是否命中激发怪清单（双向子串兜底，兼容名称后缀/前缀）。"""
+        if not nm:
+            return False
+        return any(k in nm or nm in k for k in JIFA_NAMES)
 
     def _sid_label(self, sid: int) -> str:
         nm = self._spirit_name(sid)
@@ -1009,11 +1091,11 @@ class KabuClient:
                 bossid, offset = self._read_int(body, offset)
                 self.log(f"[广播] {name}(uid={uid}) 击杀了BOSS#{bossid}", "INFO")
             elif m_params == 2:
-                activeid, offset = self._read_int(body, offset)
-                giftid, offset = self._read_int(body, offset)
-                toolnum, offset = self._read_int(body, offset)
-                self.log(f"[广播] {name}(uid={uid}) 活动#{activeid} 获得礼物#{giftid} x{toolnum}",
-                         "INFO")
+                # 活动礼物类广播高频刷屏，仅首次提示一次，其余静默忽略
+                if not self._broadcast_activity_hinted:
+                    self._broadcast_activity_hinted = True
+                    self.log("[广播] 活动礼物类广播已降噪（避免刷屏），后续静默忽略", "INFO")
+                return
             elif m_params == 3:
                 _, offset = self._read_int(body, offset)  # strlen
                 ln, offset = self._read_int(body, offset)
@@ -1585,7 +1667,7 @@ class KabuClient:
             f"[龙腾] 勋章={progress['medals']}，副本间免费补血次数="
             f"{progress['life_chance']}，今日通关={progress['today_pass']}，"
             f"进度：第 {progress['next_combat_index'] + 1}/17 场"
-            f"({'终局战(Boss)' if progress['next_combat_index'] >= 17 else '普通战'})，"
+            f"({'终局战(Boss)' if progress['next_combat_index'] >= 16 else '普通战'})，"
             f"当前场次={progress['current_combat']}，"
             f"候选妖怪={len(candidates)}只"
         )
@@ -1610,17 +1692,37 @@ class KabuClient:
                 self.dragon_enter_copy()
                 return
 
-            if progress["choice_monster"] == 0:
-                self.dragon_state["auto_draw_wait"] = True
-                self.log("[龙腾] 尚未抽取出战妖怪，发送抽取请求（每天首次进副本有效）", "USER")
-                self.send_cmd(OP_DRAGON_ACTION, DRAGON_COPY_MPARAMS, [])
+            # 已抽判定：dragon_drew 标记 / 进度已推进(next_combat_index>0) / 候选池有数据。
+            # choice_monster 对已抽取账号也常返回0（不可靠），不能作为"未抽"依据，
+            # 否则已抽账号会反复发空body抽取被服务端静默忽略→超时→死循环（"第一关打不动"根因）。
+            has_cand = any(str(c).strip() and str(c).strip() != "0" for c in candidates)
+            already_drew = (
+                self.dragon_state.get("dragon_drew")
+                or int(progress.get("next_combat_index", 0)) > 0
+                or has_cand
+            )
+            if already_drew:
+                if not self.dragon_state.get("dragon_drew"):
+                    self.dragon_state["dragon_drew"] = True
+                # 先发操作1(出战查询)确认出战怪就绪（进副本后服务端已自动抽取）
+                if not self.dragon_state.get("dragon_combat_armed"):
+                    self.dragon_get_selected_monsters()
+                    self.dragon_state["dragon_combat_armed"] = True
+                    self.dragon_state["dragon_combat_armed_at"] = time.monotonic()
+                    return
+                battle_type = int(progress["next_combat_index"] >= 16)
+                battle_name = "终局战" if battle_type else "普通战"
+                self.log(f"[龙腾] 出战妖怪已就绪（进度推进/候选池有数据），自动选择：{battle_name}")
+                if not self.dragon_start_battle(battle_type):
+                    self.log("发起战斗失败；请检查连接后重试", "ERROR")
                 return
 
-            battle_type = int(progress["next_combat_index"] >= 17)
-            battle_name = "终局战" if battle_type else "普通战"
-            self.log(f"根据服务端关卡进度，自动选择：{battle_name}")
-            if not self.dragon_start_battle(battle_type):
-                self.log("发起战斗失败；请检查连接后重试", "ERROR")
+            # 未抽取：发送空body（服务端按操作1=出战妖怪查询处理，每天首次进副本有效）
+            self.dragon_state["auto_draw_wait"] = True
+            self.dragon_state["dragon_draw_at"] = time.monotonic()
+            self.log("[龙腾] 尚未抽取出战妖怪，发送抽取请求（每天首次进副本有效）", "USER")
+            self.send_cmd(OP_DRAGON_ACTION, DRAGON_COPY_MPARAMS, [])
+            return
 
     def _handle_dragon_action_response(self, m_params: int, body: bytes):
         if m_params != DRAGON_COPY_MPARAMS:
@@ -1642,11 +1744,21 @@ class KabuClient:
         if self.dragon_state.get("auto_draw_wait"):
             self.dragon_state["auto_draw_wait"] = False
             if result == 0:
+                self.dragon_state["dragon_draw_retries"] = 0
+                self.dragon_state["dragon_drew"] = True
                 self.log("[龙腾] 抽取出战回包成功，重新查询进度以确认出战", "USER")
                 self.dragon_state["auto_running"] = True
                 self.dragon_query_progress()
                 return
-            self.log("[龙腾] 抽取出战回包异常，稍后重试", "WRAN")
+            retries = self.dragon_state.get("dragon_draw_retries", 0) + 1
+            self.dragon_state["dragon_draw_retries"] = retries
+            if retries < 3:
+                self.dragon_state["auto_draw_wait"] = True
+                self.log(f"[龙腾] 抽取出战回包异常(result={result})，第 {retries} 次重试抽取", "WRAN")
+                self.send_cmd(OP_DRAGON_ACTION, DRAGON_COPY_MPARAMS, [])
+                return
+            self.dragon_state["dragon_draw_retries"] = 0
+            self.log("[龙腾] 抽取多次失败，请检查今日是否已在龙腾盛会手动抽取过妖怪", "ERROR")
         result_messages = {
             (2, 0): "战斗已发起",
             (2, 1): "今日已战胜首领",
@@ -1698,8 +1810,26 @@ class KabuClient:
         level = "INFO" if result == 0 else "WRAN"
         self.log(f"[龙腾] {action}回包：{result_text}{suffix}", level)
 
-        if operation == 5 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
-            self.log("[龙腾] 一键连打：补血阶段完成，查询下一关", "USER")
+        if operation == 1 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
+            # 出战查询确认出战怪就绪后，查询进度发起战斗
+            self.dragon_state["dragon_combat_armed"] = True
+            self.log("[龙腾] 出战妖怪确认就绪，查询进度发起战斗", "USER")
+            self.dragon_query_progress()
+        elif operation == 5 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
+            if result == 4:
+                self.log("[龙腾] 一键连打：检测到阵亡妖怪需复活，发送复活请求", "USER")
+                self.dragon_revive_monster(0)
+            elif result == 5:
+                self.log("[龙腾] 一键连打：出战妖怪均已阵亡，直接查询下一关", "USER")
+                self.dragon_query_progress()
+            else:
+                self.log("[龙腾] 一键连打：补血阶段完成，查询下一关", "USER")
+                self.dragon_query_progress()
+        elif operation == 6 and result == 0 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
+            self.log("[龙腾] 一键连打：复活成功，继续免费补血后推进", "USER")
+            self.dragon_medal_heal(False)
+        elif operation == 6 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
+            self.log(f"[龙腾] 一键连打：复活不可用(result={result})，直接查询下一关", "WRAN")
             self.dragon_query_progress()
         elif operation == 3 and self.dragon_state.get("auto_mode"):
             q = self.dragon_state.get("auto_lottery_queue") or []
@@ -1725,8 +1855,35 @@ class KabuClient:
     def dragon_query_progress(self):
         return self.send_cmd(OP_DRAGON_QUERY, DRAGON_COPY_MPARAMS)
 
+    def dragon_goto_level(self, level: int = 0) -> bool:
+        """进关卡(1186183)：进入指定关卡准备战斗（每日首次进副本即完成出战抽取）。
+        开战前必须先进关卡，否则服务端回'没有可战斗的妖怪'。"""
+        self.log(f"[龙腾] 进入关卡(level={level})，就绪出战妖怪", "USER")
+        self.dragon_state["dragon_goto_wait"] = True
+        return self.send_cmd(OP_DRAGON_GOTO_LEVEL, level)
+
+    def _handle_dragon_goto_level_response(self, m_params: int, _body: bytes):
+        self.dragon_state["dragon_goto_wait"] = False
+        if self.dragon_state.get("auto_draw_wait"):
+            self.dragon_state["auto_draw_wait"] = False
+            self.dragon_state["dragon_draw_fail_count"] = 0
+            self.dragon_state["dragon_drew"] = True
+            self.log("[龙腾] 进关卡确认：出战妖怪已抽取，查询进度准备开战", "USER")
+            self.dragon_state["auto_running"] = True
+            self.dragon_query_progress()
+            return
+        self.dragon_state["dragon_level_entered"] = True
+        self.dragon_state["dragon_drew"] = True
+        self.log(f"[龙腾] 进关卡成功(mP={m_params})，出战妖怪已就绪，查询进度确认", "USER")
+        self.dragon_query_progress()
+
     def dragon_enter_copy(self) -> bool:
         self.log("请求进入龙腾副本", "USER")
+        # 重新进副本需重新抽取（抽取每日首次进副本有效）与重新武装出战怪
+        self.dragon_state["dragon_drew"] = False
+        self.dragon_state["dragon_level_entered"] = False
+        self.dragon_state["dragon_goto_wait"] = False
+        self.dragon_state["dragon_combat_armed"] = False
         return self.send_cmd(OP_DRAGON_ENTER, DRAGON_COPY_MPARAMS, [0])
 
     def dragon_get_selected_monsters(self):
@@ -1783,6 +1940,74 @@ class KabuClient:
         self.dragon_state["dragon_battle_active"] = False
         return self.send_cmd(OP_DRAGON_EXIT, 0)
 
+    def dragon_refresh_session(self) -> bool:
+        """死一重登：BOSS战我方宠死亡后主动断线重连（换会话异地登录），
+        避免妖怪死亡惩罚并继续推关。出战怪每日状态保留在账号，重登后不重新抽取。"""
+        self.log("[龙腾] 检测到需要重登（BOSS战我方宠死亡），执行断线重登换会话", "USER")
+        self.dragon_state["dragon_refresh_needed"] = False
+        self.dragon_state["auto_running"] = False
+        self.dragon_state["auto_request_at"] = None
+        self.dragon_state["dragon_battle_active"] = False
+        try:
+            self.close()
+        except Exception as exc:
+            self.log(f"[龙腾] 断开旧连接异常：{exc}", "WRAN")
+        self.connected = False
+        time.sleep(2)
+        if not self.connect():
+            self.log("[龙腾] 重登失败：无法重连游戏服务器", "ERROR")
+            return False
+        try:
+            self.login(self.login_token, server_id=self._login_server_id,
+                       server_mode=self._login_server_mode)
+        except Exception as exc:
+            self.log(f"[龙腾] 重登失败：重新认证异常：{exc}", "ERROR")
+            return False
+        # 重登后视为仍在副本：出战怪每日状态保留在账号，直接战斗不重新抽取
+        self.dragon_state["in_dragon"] = True
+        self.dragon_state["dragon_drew"] = True
+        self.log("[龙腾] 重登成功，直接按进度自动推进", "USER")
+        self.dragon_auto_start()
+        return True
+
+    def dragon_check_stuck(self):
+        """卡死检测：①死一重登(消费dragon_refresh_needed) ②抽取超时兜底 ③战斗动作超时重新决策。"""
+        # ① 死一重登：BOSS战宠死亡置位后，立即断线重登换会话
+        if self.dragon_state.get("dragon_refresh_needed"):
+            self.dragon_refresh_session()
+            return True
+        # ② 抽取卡死：发空body抽取后超时无回包（今日已抽/重复抽取被服务端静默忽略）→ 重查进度确认出战
+        if self.dragon_state.get("auto_draw_wait"):
+            last = self.dragon_state.get("dragon_draw_at")
+            if last is not None and time.monotonic() - last > 12:
+                self.dragon_state["auto_draw_wait"] = False
+                fails = self.dragon_state.get("dragon_draw_fail_count", 0) + 1
+                self.dragon_state["dragon_draw_fail_count"] = fails
+                if fails >= 3:
+                    self.dragon_state["dragon_draw_fail_count"] = 0
+                    self.log("[龙腾] 抽取多次无回应，请确认今日是否已手动抽取出战妖怪，稍后重试", "ERROR")
+                    self.dragon_state["auto_mode"] = False
+                    return False
+                self.log("[龙腾] 抽取超时无响应（可能今日已抽完），重新查询进度确认出战", "WRAN")
+                self.dragon_auto_start()
+                return True
+        # ② 战斗动作卡死
+        if not self.dragon_state.get("dragon_battle_active"):
+            return False
+        waiting = self.dragon_state.get("dragon_waiting", "idle")
+        last = self.dragon_state.get("dragon_action_at")
+        if waiting in ("await_attack", "await_advance") and last is not None:
+            if time.monotonic() - last > 15:
+                self.log(f"[龙腾] 动作等待超时({waiting})：技能可能未释放或服务端未响应，重新决策",
+                         "WRAN")
+                self.dragon_state["dragon_waiting"] = "idle"
+                try:
+                    self._dragon_round_action()
+                except Exception as exc:
+                    self.log(f"[龙腾] 卡死重试失败：{exc}", "ERROR")
+                return True
+        return False
+
     def dragon_auto_start(self) -> bool:
         if self.dragon_state["auto_running"]:
             started_at = self.dragon_state.get("auto_request_at")
@@ -1798,8 +2023,34 @@ class KabuClient:
         self.dragon_state["auto_request_at"] = time.monotonic()
         self.dragon_state["auto_mode"] = True
         self.dragon_state["auto_draw_wait"] = False
-        if not self.dragon_state.get("in_dragon"):
-            self.dragon_enter_copy()
+        # 每次自动连打都强制重新进副本，重建龙腾会话。
+        # 复用旧 in_dragon 会话（客户端状态，服务端会话已过期）会导致"没有可战斗的妖怪"。
+        self.dragon_state["in_dragon"] = False
+        self.dragon_state["dragon_combat_armed"] = False
+        self.dragon_enter_copy()
+        # 进副本后服务端需时间完成抽取/会话就绪，过早操作会被静默丢弃。
+        # 轮询：交替查进度+发操作1(出战查询)，直到收到回包确认出战怪就绪
+        # （实测须先查进度触发就绪，再操作1才有回包）。
+        self.log("[龙腾] 等待副本会话就绪并确认出战妖怪...", "USER")
+        for _attempt in range(10):
+            time.sleep(3)
+            if not self.connected:
+                break
+            if self.dragon_state.get("dragon_combat_armed"):
+                break
+            self.dragon_query_progress()
+            time.sleep(0.5)
+            self.dragon_get_selected_monsters()
+        if not self.dragon_state.get("dragon_combat_armed"):
+            # 抽取每日首次进副本有效；反复无回包说明今日抽取已耗尽或需手动抽取
+            self.dragon_state["dragon_draw_fail_count"] = self.dragon_state.get("dragon_draw_fail_count", 0) + 1
+            if self.dragon_state.get("dragon_draw_fail_count", 0) >= 3:
+                self.log("[龙腾] 多次进副本均无法确认出战妖怪：今日抽取次数可能已耗尽（每天限一次）或账号需先在游戏内手动抽取。停止自动重试。", "ERROR")
+                self.dragon_state["auto_running"] = False
+                self.dragon_state["auto_mode"] = False
+                self.dragon_state["auto_request_at"] = None
+                return False
+            self.log("[龙腾] 副本会话未就绪/出战怪未确认，交由 watchdog 再次尝试", "WRAN")
         self.log("自动推进：先读取服务端进度，再判断是否发起下一战", "USER")
         if not self.dragon_query_progress():
             self.dragon_state["auto_running"] = False
