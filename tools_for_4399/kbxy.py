@@ -1865,7 +1865,13 @@ class KabuClient:
             wins.append(win)
         if progress["choice_monster"] == 1:
             progress["player_monster_info"], offset = self._read_utf(body, offset)
+            team = self._parse_player_monster_info(progress["player_monster_info"])
+            self.dragon_state["dragon_team"] = team
             self.log(f"[龙腾] 出战妖怪信息: {progress['player_monster_info']}", "INFO")
+            if team:
+                named = [f"{t['element']}系#{self._spirit_name(int(t['spirit'])) or t['spirit']}"
+                         f"(HP{t['hp']})" for t in team]
+                self.log(f"[龙腾] 出战队伍已解析({len(team)}只)：{'，'.join(named)}", "BATTLE")
 
         self.dragon_state.pop("player_monster_info", None)
         self.dragon_state.update(progress)
@@ -2039,6 +2045,14 @@ class KabuClient:
         elif result == 0 and operation in (1, 6, 7):
             monster_info, offset = self._read_utf(body, offset)
             details.append(f"妖怪信息={monster_info}")
+            if operation == 1 and monster_info:
+                # 出战妖怪查询：统一用 player_monster_info 解析（element:spirit:hp）
+                team = self._parse_player_monster_info(monster_info)
+                if team:
+                    self.dragon_state["dragon_team"] = team
+                    named = [f"{t['element']}系#{self._spirit_name(int(t['spirit'])) or t['spirit']}"
+                             f"(HP{t['hp']})" for t in team]
+                    self.log(f"[龙腾] 出战队伍已解析({len(team)}只)：{'，'.join(named)}", "BATTLE")
 
         suffix = f"，{'，'.join(details)}" if details else ""
         result_text = result_messages.get((operation, result), f"result={result}")
@@ -2208,6 +2222,24 @@ class KabuClient:
             return False
         return self.send_cmd(OP_DRAGON_ACTION, DRAGON_COPY_MPARAMS, [7, 2, index1, index2])
 
+    def _parse_player_monster_info(self, info: str) -> list:
+        """解析出战妖怪信息 player_monster_info（冒号分隔，每3字段一只）：
+        element:spirit_id:hp 循环，尾部可能残留额外字段（如编队序号/等级）。
+        实测 12 只出战怪 = 36 字段 + 尾 1；解析失败返回 []。
+        注意：不得按 6 字段步进（旧实现会漏掉一半出战怪并错位编队索引）。"""
+        out = []
+        parts = info.split(":")
+        for i in range(0, len(parts) - 2, 3):
+            try:
+                out.append({
+                    "element": int(parts[i]),
+                    "spirit": parts[i + 1],
+                    "hp": parts[i + 2],
+                })
+            except ValueError:
+                break
+        return out
+
     def _dragon_swap_alive_to_front(self):
         """阵亡妖怪不复活(省钱)：用交换编队(操作7)把活着的妖怪换到前面。
         出战妖怪信息 player_monster_info 格式(冒号分隔，每6字段一只)：
@@ -2220,10 +2252,7 @@ class KabuClient:
                 self.dragon_query_progress()
                 return
             parts = info.split(":")
-            monsters = []
-            for i in range(0, len(parts) - 1, 6):
-                if i + 2 < len(parts):
-                    monsters.append({"spirit": parts[i + 1], "hp": parts[i + 2]})
+            monsters = self._parse_player_monster_info(info)
             if not monsters:
                 self.log("[龙腾] 出战妖怪信息解析为空，查询进度", "WRAN")
                 self.dragon_query_progress()
@@ -2260,10 +2289,7 @@ class KabuClient:
                 self.log("[龙腾] 无出战妖怪信息，无法编队排序", "WRAN")
                 return False
             parts = info.split(":")
-            monsters = []
-            for i in range(0, len(parts) - 1, 6):
-                if i + 1 < len(parts):
-                    monsters.append({"element": int(parts[i]), "spirit": parts[i + 1], "hp": parts[i + 2]})
+            monsters = self._parse_player_monster_info(info)
             if not monsters:
                 return False
             # 找第一个克制 target_ele 且存活的宠
