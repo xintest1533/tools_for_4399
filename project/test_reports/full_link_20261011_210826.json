@@ -1,0 +1,15 @@
+{
+  "ts": "2026-10-11 21:08:26",
+  "module": "全链路(培育/神兽园/龙腾)",
+  "results": [
+    {
+      "op": "全链路",
+      "status": "EXC",
+      "detail": "Traceback (most recent call last):\n  File \"/home/user/kbxy/project/test_full_link.py\", line 93, in main\n    if not c.login(token):\n           ^^^^^^^^^^^^^^\n  File \"/home/user/kbxy/tools_for_4399/kbxy.py\", line 257, in login\n    raise ConnectionError(\"请先连接游戏服务器\")\nConnectionError: 请先连接游戏服务器\n"
+    }
+  ],
+  "summary": {
+    "ok": 0,
+    "fail": 1
+  }
+}
