@@ -836,16 +836,23 @@ class KabuClient:
                 break
 
         candidates = []
+        enemy_hp = enemies[0].get("hp", 0) if enemies else 0
+        enemy_max = enemies[0].get("max_hp", 1) if enemies else 1
+        enemy_ratio = enemy_hp / max(enemy_max, 1)
         for si, (sid, pp, mpp) in enumerate(sk):
             if pp <= 0:
                 continue
-            s = 50.0 - si * 5.0 + min(pp, mpp) * 1.0
-            if cur_ratio < 0.3:
-                s -= 12.0
+            # 技能威力估计：技能序号越小通常威力越高（第1技能常为大招/高倍率）
+            power = 70.0 - si * 8.0
+            s = power + min(pp, mpp) * 0.8
+            if cur_ratio < 0.35:
+                s -= 10.0          # 我方残血：少用低效技能，尽快输出
             if cur_bonus:
-                s += cur_bonus * 30.0
+                s += cur_bonus * 35.0   # 我方属性克制敌方：显著加分
             if enemy_jifa:
-                s += 40.0
+                s += 50.0               # 敌方首发激发怪：强攻秒杀，不可耗PP
+            if enemy_ratio < 0.35:
+                s += 28.0               # 敌方残血：优先高威力技能收割，避免被拖回合
             candidates.append((f"技能{sid}", s, ("skill", sid)))
         switch_ids = self.dragon_state.get("dragon_switch_ids") or []
         for idx in range(pi + 1, len(sets)):
@@ -857,8 +864,8 @@ class KabuClient:
             if self._element_adv(ele, enemy_ele) > 0:
                 s += 120.0
                 self.log(f"[决策] 候选宠#{idx}(elem={ele}) 克制敌方(elem={enemy_ele})，优先上阵", "INFO")
-            if cur_ratio < 0.25:
-                s += 30.0
+            if cur_ratio < 0.40:
+                s += 35.0          # 我方残血更早换宠，避免送死
             candidates.append((f"换宠#{idx}", s, ("switch", idx)))
 
         # 敌方PP已耗尽：优先上阵我方激发怪（叠满属性直接推队清场）
