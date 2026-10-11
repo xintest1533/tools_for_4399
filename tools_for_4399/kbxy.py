@@ -1832,6 +1832,17 @@ class KabuClient:
         level = "INFO" if result == 0 else "WRAN"
         self.log(f"[龙腾] {action}回包：{result_text}{suffix}", level)
 
+        if operation == 2 and result == 2:
+            # "没有可战斗的妖怪"：出战怪未被服务端确认（今日抽取未完成/已耗尽）。
+            # 此时继续重试只会 watchdog 无限发战斗刷屏，停止自动连打并明确提示。
+            self.dragon_state["dragon_combat_armed"] = False
+            self.dragon_state["dragon_candidate_viewed"] = False
+            self.dragon_state["auto_running"] = False
+            self.dragon_state["auto_mode"] = False
+            self.dragon_state["auto_request_at"] = None
+            self.log("[龙腾] 出战妖怪未就绪（没有可战斗的妖怪），停止自动连打。"
+                     "请先在游戏内抽取/确认出战妖怪，或今日抽取额度已用完明日再试。", "ERROR")
+
         if operation == 1 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
             # 出战查询确认出战怪就绪后，保持自动流程并查询进度发起战斗
             self.dragon_state["dragon_combat_armed"] = True
@@ -2056,34 +2067,49 @@ class KabuClient:
         self.dragon_state["auto_request_at"] = time.monotonic()
         self.dragon_state["auto_mode"] = True
         self.dragon_state["auto_draw_wait"] = False
-        # 每次自动连打都强制重新进副本，重建龙腾会话。
-        # 复用旧 in_dragon 会话（客户端状态，服务端会话已过期）会导致"没有可战斗的妖怪"。
-        self.dragon_state["in_dragon"] = False
-        self.dragon_state["dragon_combat_armed"] = False
-        self.dragon_enter_copy()
-        # 进副本后服务端需时间完成抽取/会话就绪，过早操作会被静默丢弃。
-        # 轮询：交替查进度+发操作1(出战查询)，直到收到回包确认出战怪就绪
-        # （实测须先查进度触发就绪，再操作1才有回包）。
-        self.log("[龙腾] 等待副本会话就绪并确认出战妖怪...", "USER")
-        for _attempt in range(10):
-            time.sleep(3)
-            if not self.connected:
-                break
-            if self.dragon_state.get("dragon_combat_armed"):
-                break
-            self.dragon_query_progress()
-            time.sleep(0.5)
-            self.dragon_get_selected_monsters()
+        # 断点续打/已推进：本进程已确认出战怪或已查看候选，则跳过强制重进副本（重进会重置
+        # armed/candidate_viewed 状态，导致 watchdog 反复重进副本永远走不到战斗），直接续推主分支。
+        if (self.dragon_state.get("dragon_combat_armed")
+                or self.dragon_state.get("dragon_candidate_viewed")):
+            self.log("[龙腾] 已就绪出战怪/已推进，跳过重进副本，直接续推战斗", "USER")
+        else:
+            # 每次自动连打都强制重新进副本，重建龙腾会话。
+            # 复用旧 in_dragon 会话（客户端状态，服务端会话已过期）会导致"没有可战斗的妖怪"。
+            self.dragon_state["in_dragon"] = False
+            self.dragon_state["dragon_combat_armed"] = False
+            self.dragon_enter_copy()
+            # 进副本后服务端需时间完成抽取/会话就绪，过早操作会被静默丢弃。
+            # 轮询：交替查进度+发操作1(出战查询)，直到收到回包确认出战怪就绪
+            # （实测须先查进度触发就绪，再操作1才有回包）。
+            self.log("[龙腾] 等待副本会话就绪并确认出战妖怪...", "USER")
+            for _attempt in range(10):
+                time.sleep(3)
+                if not self.connected:
+                    break
+                if self.dragon_state.get("dragon_combat_armed"):
+                    break
+                self.dragon_query_progress()
+                time.sleep(0.5)
+                self.dragon_get_selected_monsters()
         if not self.dragon_state.get("dragon_combat_armed"):
-            # 抽取每日首次进副本有效；反复无回包说明今日抽取已耗尽或需手动抽取
+            # 抽取每日首次进副本有效；反复无回包说明今日抽取已耗尽或需手动抽取。
             self.dragon_state["dragon_draw_fail_count"] = self.dragon_state.get("dragon_draw_fail_count", 0) + 1
-            if self.dragon_state.get("dragon_draw_fail_count", 0) >= 3:
+            # 断点续打：出战怪每日保留（每日首进副本抽取一次即固定）。
+            # 若账号有历史进度（赢过场次，next_combat_index>0 或 wins 非空），操作1无回包=今日已确认过抽取，
+            # 出战怪已就位，直接跳过重复确认继续战斗——否则"无法确认出战怪"卡死导致断点续打失效。
+            has_progress = (self.dragon_state.get("next_combat_index", 0) > 0) \
+                or bool(self.dragon_state.get("wins"))
+            if has_progress and self.dragon_state.get("dragon_draw_fail_count", 0) >= 1:
+                self.dragon_state["dragon_combat_armed"] = True
+                self.log("[龙腾] 检测到历史进度(断点续打)，出战怪每日保留，跳过重复确认直接续战", "USER")
+            elif self.dragon_state.get("dragon_draw_fail_count", 0) >= 3:
                 self.log("[龙腾] 多次进副本均无法确认出战妖怪：今日抽取次数可能已耗尽（每天限一次）或账号需先在游戏内手动抽取。停止自动重试。", "ERROR")
                 self.dragon_state["auto_running"] = False
                 self.dragon_state["auto_mode"] = False
                 self.dragon_state["auto_request_at"] = None
                 return False
-            self.log("[龙腾] 副本会话未就绪/出战怪未确认，交由 watchdog 再次尝试", "WRAN")
+            else:
+                self.log("[龙腾] 副本会话未就绪/出战怪未确认，交由 watchdog 再次尝试", "WRAN")
         self.log("自动推进：先读取服务端进度，再判断是否发起下一战", "USER")
         if not self.dragon_query_progress():
             self.dragon_state["auto_running"] = False
