@@ -1816,13 +1816,11 @@ class KabuClient:
                     return
                 battle_type = int(progress["next_combat_index"] >= 17)
                 battle_name = "终局战" if battle_type else "普通战"
-                # 开战前必须先进关卡(1186183)：进关卡通常无回包，发一次并本地标记就绪，下轮直接开战
-                if not self.dragon_state.get("dragon_level_entered"):
-                    self.dragon_state["dragon_level_entered"] = True
-                    self.dragon_state["dragon_goto_wait"] = False
-                    self.dragon_goto_level(0)
-                    return
-                self.log(f"[龙腾] 出战妖怪已就绪，自动选择：{battle_name}")
+                # 每场战斗前都先进关卡(1186183)：服务端按关卡就绪出战怪，打完一场需重新进下一关
+                self.dragon_state["dragon_goto_wait"] = False
+                self.dragon_state["dragon_level_entered"] = True
+                self.dragon_goto_level(0)
+                self.log(f"[龙腾] 出战妖怪已就绪，进关卡+自动选择：{battle_name}")
                 if not self.dragon_start_battle(battle_type):
                     self.log("发起战斗失败；请检查连接后重试", "ERROR")
                 return
@@ -2256,13 +2254,12 @@ class KabuClient:
                         return True
                 else:
                     self.dragon_state["dragon_boss_retry"] = 0
-                # 开战前必须先进关卡(1186183)：进关卡通常无回包，发一次并本地标记就绪，下轮直接开战
-                if not self.dragon_state.get("dragon_level_entered"):
-                    self.dragon_state["dragon_level_entered"] = True
-                    self.dragon_state["dragon_goto_wait"] = False
-                    self.dragon_goto_level(0)
-                    return True
-                self.log("[龙腾] 候选序列已确认，发起战斗", "USER")
+                # 每场战斗前都先进关卡(1186183)：服务端按关卡就绪出战怪，打完一场需重新进下一关
+                # 进关卡无回包，发一次即本地标记就绪，随后立即发起战斗
+                self.dragon_state["dragon_goto_wait"] = False
+                self.dragon_state["dragon_level_entered"] = True
+                self.dragon_goto_level(0)
+                self.log("[龙腾] 候选序列已确认，进关卡+发起战斗", "USER")
                 self.dragon_start_battle(battle_type)
                 return True
             return False
