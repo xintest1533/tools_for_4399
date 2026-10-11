@@ -887,23 +887,10 @@ class KabuClient:
             if enemy_ratio < 0.35:
                 s += 28.0               # 敌方残血：优先高威力技能收割，避免被拖回合
             candidates.append((f"技能{sid}", s, ("skill", sid)))
-        switch_ids = self.dragon_state.get("dragon_switch_ids") or []
-        for idx in range(pi + 1, len(sets)):
-            if idx >= len(pets):
-                break
-            ratio = pets[idx]["hp"] / max(pets[idx]["maxhp"], 1)
-            s = 10.0 + ratio * 60.0
-            ele = pets[idx].get("element", 0)
-            adv = self._element_adv(ele, enemy_ele)
-            if adv > 0:
-                s += 120.0
-                self.log(f"[决策] 候选宠#{idx}(elem={ele}) 克制敌方(elem={enemy_ele})，优先上阵", "INFO")
-            elif adv < 0:
-                s += adv * 40.0   # 候选宠被敌方克制：抵抗降权，避免切到被克的宠送死
-                self.log(f"[决策] 候选宠#{idx}(elem={ele}) 被敌方(elem={enemy_ele})克制，降权", "INFO")
-            if cur_ratio < 0.40:
-                s += 35.0          # 我方残血更早换宠，避免送死
-            candidates.append((f"换宠#{idx}", s, ("switch", idx)))
+        # 龙腾为服务器控制上阵的自动战斗：主动切换(操作1)会被服务器拒绝并重置状态，
+        # 故不再生成换宠候选；克制宠上场依赖编队顺序(_dragon_order_counter_first)，
+        # 战斗中只发技能，宠倒下后推进回合由服务器按编队自动上阵下一只。
+        # (原换宠候选 for idx in range(pi+1,len(sets)) 已移除)
 
         # 敌方PP已耗尽：优先上阵我方激发怪（叠满属性直接推队清场）
         if enemy_pp_depleted and jifa_pets:
@@ -944,13 +931,9 @@ class KabuClient:
             if nxt < len(switch_ids) and switch_ids[nxt]:
                 self.dragon_state["dragon_skill_idx"] = nxt
                 self.dragon_state["dragon_sub_idx"] = 0
-                sw = switch_ids[nxt]
-                if nxt < len(pets) and pets[nxt].get("spirit_id"):
-                    sw = pets[nxt]["spirit_id"]
-                self.log(f"[龙腾] 当前宠血量归零，兜底切换到候选宠 #{nxt} "
-                         f"(UID={switch_ids[nxt]})", "WRAN")
-                self.send_cmd(OP_BATTLE_USER_OP, 1, [sw])
-                self.dragon_state["dragon_waiting"] = "await_attack"
+                self.log(f"[龙腾] 当前宠血量归零，推进回合，服务器按编队自动上阵下一只(编队#{nxt})", "WRAN")
+                self.send_cmd(OP_DRAGON_ROUND_ADVANCE, 0)
+                self.dragon_state["dragon_waiting"] = "await_advance"
                 return
             if self._dragon_is_boss_stage():
                 self.log("[龙腾] BOSS 战当前宠倒下且无后备，撤离副本", "ERROR")
@@ -2141,6 +2124,39 @@ class KabuClient:
             self.log(f"[龙腾] 交换编队异常：{e}，查询进度", "ERROR")
             self.dragon_query_progress()
 
+    def dragon_order_counter_first(self, target_ele: int = 5) -> bool:
+        """把克制 target_ele 属性的存活出战妖用交换编队(操作7)换到编队第1位。
+        龙腾为服务器按编队顺序自动上阵的自动战斗，主动切换(操作1)无效；
+        只有让克制妖系(Boss常见)的宠排在编队最前，服务器才会先上克制宠，从而打赢最终战。"""
+        try:
+            info = self.dragon_state.get("player_monster_info") or ""
+            if not info:
+                self.log("[龙腾] 无出战妖怪信息，无法编队排序", "WRAN")
+                return False
+            parts = info.split(":")
+            monsters = []
+            for i in range(0, len(parts) - 1, 6):
+                if i + 1 < len(parts):
+                    monsters.append({"element": int(parts[i]), "spirit": parts[i + 1], "hp": parts[i + 2]})
+            if not monsters:
+                return False
+            # 找第一个克制 target_ele 且存活的宠
+            for i, m in enumerate(monsters):
+                if m["hp"] == "0":
+                    continue
+                ele = m["element"]
+                if self._element_adv(ele, target_ele) > 0:
+                    if i > 0:
+                        self.log(f"[龙腾] 编队排序：把克制敌方(elem={target_ele})的宠#{i}(elem={ele}) "
+                                 f"换到编队第1位，让服务器自动先上克制宠", "USER")
+                        return self.dragon_swap_monsters(1, i + 1)
+                    return True
+            self.log(f"[龙腾] 出战妖中无克制敌方(elem={target_ele})的宠，保持原编队", "INFO")
+            return False
+        except Exception as e:
+            self.log(f"[龙腾] 编队排序异常：{e}", "ERROR")
+            return False
+
     def dragon_exit_copy(self) -> bool:
         self.log("请求离开龙腾副本", "USER")
         self.dragon_state["in_dragon"] = False
@@ -2290,6 +2306,11 @@ class KabuClient:
                 self.dragon_query_progress()
                 time.sleep(0.5)
                 self.dragon_get_selected_monsters()
+        if self.dragon_state.get("dragon_combat_armed") and not self.dragon_state.get("dragon_ordered"):
+            # 编队排序：龙腾自动战斗服务器按编队上阵，把克制妖系(Boss常见)的宠排到第1位，
+            # 服务器自动先上克制宠，提升最终战(黑煞狩妖系)胜率。每个会话只排一次。
+            self.dragon_state["dragon_ordered"] = True
+            self.dragon_order_counter_first(5)
         if not self.dragon_state.get("dragon_combat_armed"):
             # 抽取每日首次进副本有效；反复无回包说明今日抽取已耗尽或需手动抽取。
             self.dragon_state["dragon_draw_fail_count"] = self.dragon_state.get("dragon_draw_fail_count", 0) + 1
