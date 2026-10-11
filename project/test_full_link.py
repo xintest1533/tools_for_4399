@@ -20,9 +20,27 @@ import sys
 import time
 import traceback
 
+# project/ 与仓库根都在查找路径内（login_4399.py 位于仓库根）
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from tools_for_4399.kbxy import KabuClient, HOST  # noqa: E402
+
+
+def _resolve_token(cli_token: str) -> str:
+    """--token 优先；否则从 credentials.json 自动取登录态（token>cookie>账号密码）。"""
+    if cli_token:
+        return cli_token
+    try:
+        import login_4399
+        cred = login_4399.load_credentials()
+        if not cred:
+            raise RuntimeError("credentials.json 不存在或无内容")
+        return login_4399.get_token(cred, save=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"[TEST] 自动取登录态失败: {e}", file=sys.stderr)
+        raise
 
 
 def _r(op: str, status, **extra) -> dict:
@@ -57,7 +75,7 @@ def probe_dragon(c: KabuClient, results: list) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="卡布西游全链路测试")
-    ap.add_argument("--token", required=True, help="4399 登录态 token（勿写日志）")
+    ap.add_argument("--token", default="", help="4399 登录态 token（优先；缺省自动从 credentials.json 取）")
     ap.add_argument("--out", default="", help="报告输出路径，默认写 test_reports/")
     ap.add_argument("--shenshou", type=int, default=0, help="神兽园 shenshou_user_id（可选）")
     args = ap.parse_args()
@@ -71,7 +89,8 @@ def main() -> int:
 
     c = KabuClient(HOST)
     try:
-        if not c.login(args.token):
+        token = _resolve_token(args.token)
+        if not c.login(token):
             report["results"].append(_r("登录", False, detail="token 无效或超时"))
         else:
             report["results"].append(_r("登录", True))
