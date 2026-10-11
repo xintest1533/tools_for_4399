@@ -1816,9 +1816,10 @@ class KabuClient:
                     return
                 battle_type = int(progress["next_combat_index"] >= 17)
                 battle_name = "终局战" if battle_type else "普通战"
-                # 开战前必须先进关卡(1186183)：进关卡才完成出战抽取/就绪出战妖怪，
-                # 否则服务端回"没有可战斗的妖怪"(mParams=2)。此前漏调 dragon_goto_level 导致全账号发不起战斗。
+                # 开战前必须先进关卡(1186183)：进关卡通常无回包，发一次并本地标记就绪，下轮直接开战
                 if not self.dragon_state.get("dragon_level_entered"):
+                    self.dragon_state["dragon_level_entered"] = True
+                    self.dragon_state["dragon_goto_wait"] = False
                     self.dragon_goto_level(0)
                     return
                 self.log(f"[龙腾] 出战妖怪已就绪，自动选择：{battle_name}")
@@ -2255,8 +2256,10 @@ class KabuClient:
                         return True
                 else:
                     self.dragon_state["dragon_boss_retry"] = 0
-                # 开战前必须先进关卡(1186183)，否则服务端回"没有可战斗的妖怪"(mParams=2)
+                # 开战前必须先进关卡(1186183)：进关卡通常无回包，发一次并本地标记就绪，下轮直接开战
                 if not self.dragon_state.get("dragon_level_entered"):
+                    self.dragon_state["dragon_level_entered"] = True
+                    self.dragon_state["dragon_goto_wait"] = False
                     self.dragon_goto_level(0)
                     return True
                 self.log("[龙腾] 候选序列已确认，发起战斗", "USER")
