@@ -64,11 +64,21 @@ def probe_peiyu(c: KabuClient, results: list, shenshou_user_id: int = 0) -> None
 
 
 def probe_dragon(c: KabuClient, results: list) -> None:
-    """龙腾盛会链路探测：进副本 -> 查进度。"""
+    """龙腾盛会链路探测：进副本 -> 查进度 -> 出战查询(操作1, 只读不消耗额度)。"""
     try:
         results.append(_r("龙腾进副本", c.dragon_enter_copy()))
         time.sleep(1.0)
         results.append(_r("龙腾查进度", c.dragon_query_progress()))
+        time.sleep(1.2)
+        # 只读操作：查询出战妖怪（操作1），不发起战斗/抽奖，不消耗每日额度
+        c.dragon_get_selected_monsters()
+        time.sleep(1.2)
+        drew = c.dragon_state.get("dragon_drew")
+        armed = c.dragon_state.get("dragon_combat_armed")
+        results.append(_r(
+            "龙腾出战查询(操作1)", True,
+            detail=f"dragon_drew={drew} dragon_combat_armed={armed}（回包详见日志）",
+        ))
     except Exception as e:  # noqa: BLE001
         results.append({"op": "龙腾进副本/查进度", "status": "EXC", "detail": str(e)})
 
