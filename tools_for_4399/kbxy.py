@@ -861,7 +861,8 @@ class KabuClient:
                 # 真实伤害判定：威力+效果共同决定，优先放伤害最高的技能
                 base = power * 0.6 + effect * 0.4
             else:
-                base = 70.0 - si * 8.0   # 兜底：技能序号越小通常威力越高
+                # power=0 为纯辅助/削弱技能（如降防降命中），不作为主输出，避免低伤害打不动怪
+                base = 5.0
             s = base
             # 技能自身属性克制敌方：伤害显著加成（优先克制技能）
             sk_bonus = self._element_adv(s_elem, enemy_ele) if s_elem else 0.0
@@ -1026,17 +1027,22 @@ class KabuClient:
                     continue
                 with open(path, "r", encoding="utf-8", errors="ignore") as f:
                     txt = f.read()
-                for m in re.finditer(
-                    r'<skill>\s*<idx>(\d+)</idx>\s*<name>([^<]*)</name>'
-                    r'.*?<power>(-?\d+)</power>.*?<effect>(-?\d+)</effect>'
-                    r'.*?<elem>(\d+)</elem>.*?<count>(\d+)</count>',
-                    txt, re.S):
-                    self._skill_table[int(m.group(1))] = {
-                        "name": m.group(2).strip(),
-                        "power": int(m.group(3)),
-                        "effect": int(m.group(4)),
-                        "elem": int(m.group(5)),
-                        "count": int(m.group(6)),
+                for skill_block in re.findall(r'<skill>.*?</skill>', txt, re.S):
+                    m_idx = re.search(r'<idx>\s*(\d+)\s*</idx>', skill_block)
+                    if not m_idx:
+                        continue
+                    sid = int(m_idx.group(1))
+                    m_name = re.search(r'<name>\s*([^<]*?)\s*</name>', skill_block)
+                    m_pow = re.search(r'<power>\s*(-?\d+)\s*</power>', skill_block)
+                    m_eff = re.search(r'<effect>\s*(-?\d+)\s*</effect>', skill_block)
+                    m_elem = re.search(r'<elem>\s*(\d+)\s*</elem>', skill_block)
+                    m_cnt = re.search(r'<count>\s*(\d+)\s*</count>', skill_block)
+                    self._skill_table[sid] = {
+                        "name": m_name.group(1).strip() if m_name else "",
+                        "power": int(m_pow.group(1)) if m_pow else 0,
+                        "effect": int(m_eff.group(1)) if m_eff else 0,
+                        "elem": int(m_elem.group(1)) if m_elem else 0,
+                        "count": int(m_cnt.group(1)) if m_cnt else 0,
                     }
                 if self._skill_table:
                     self.log(f"已加载技能表 {len(self._skill_table)} 条（{path}）", "INFO")
@@ -1754,7 +1760,7 @@ class KabuClient:
                 f"[龙腾] 勋章={progress['medals']}，副本间免费补血次数="
                 f"{progress['life_chance']}，今日通关={progress['today_pass']}，"
                 f"进度：第 {progress['next_combat_index'] + 1}/17 场"
-                f"({'终局战(Boss)' if progress['next_combat_index'] >= 16 else '普通战'})，"
+                f"({'终局战(Boss)' if progress['next_combat_index'] >= 17 else '普通战'})，"
                 f"当前场次={progress['current_combat']}，"
                 f"候选妖怪={len(candidates)}只"
             )
@@ -1809,7 +1815,7 @@ class KabuClient:
                     self.log("[龙腾] 出战怪已确认，先查看候选序列，随后发起战斗", "USER")
                     self.send_cmd(OP_DRAGON_ACTION, DRAGON_COPY_MPARAMS, [4, 0, 0])
                     return
-                battle_type = int(progress["next_combat_index"] >= 16)
+                battle_type = int(progress["next_combat_index"] >= 17)
                 battle_name = "终局战" if battle_type else "普通战"
                 self.log(f"[龙腾] 出战妖怪已就绪（进度推进/候选池有数据），自动选择：{battle_name}")
                 if not self.dragon_start_battle(battle_type):
@@ -2193,7 +2199,7 @@ class KabuClient:
                     and self.dragon_state.get("dragon_combat_armed")
                     and self.dragon_state.get("in_dragon")
                     and not self.dragon_state.get("dragon_refresh_needed")):
-                battle_type = int(self.dragon_state.get("next_combat_index", 0) >= 16)
+                battle_type = int(self.dragon_state.get("next_combat_index", 0) >= 17)
                 if battle_type == 1:
                     # 终局战(Boss)：连续发起无响应先补血+复活；再失败则判定当天已挑战/会话失效，停止空转
                     fails = self.dragon_state.get("dragon_boss_retry", 0) + 1
