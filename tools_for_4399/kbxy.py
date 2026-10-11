@@ -134,6 +134,10 @@ OP_COPY_READY_BACK = 1316483               # 进入副本后就绪确认(mP=0)
 OP_TIP_BROADCAST_BACK = 1317330            # 提示/广播(含文本)
 OP_PLAYER_INFO_BROADCAST_BACK = 1316392    # 玩家信息广播(mP=玩家ID)
 OP_PLAYER_STATUS_BACK = 1315384            # 玩家状态/在线信息回包(mP=玩家ID)
+OP_NOTICE_BACK = 1316501                   # 公告 notice 回包(hex含"notice")
+OP_STATE_CONFIRM_BACK = 1317366            # 状态确认回包(mP=1, 空body)
+OP_GENERIC_CONFIRM_BACK = 1315081          # 通用确认回包(mP=7, 4字节)
+OP_EMPTY_BACK = 1316123                    # 空回包(长度0)
 
 # 未解析回包的语义命名表（仅供日志摘要，不阻塞功能）
 _OP_UNPARSED_NAMES: "dict[int, str]" = {
@@ -147,7 +151,36 @@ _OP_UNPARSED_NAMES: "dict[int, str]" = {
     OP_TIP_BROADCAST_BACK: "文本提示广播",
     OP_PLAYER_INFO_BROADCAST_BACK: "玩家信息广播",
     OP_PLAYER_STATUS_BACK: "玩家状态回包",
+    OP_NOTICE_BACK: "公告notice回包",
+    OP_STATE_CONFIRM_BACK: "状态确认回包",
+    OP_GENERIC_CONFIRM_BACK: "通用确认回包",
+    OP_EMPTY_BACK: "空回包",
 }
+
+
+def _extract_utf8_strings(body: bytes, min_len: int = 2) -> list:
+    """宽松扫描协议包中 [u16长度][utf8文本] 片段，用于广播/公告类回包的可读化。
+
+    不依赖完整结构：只取长度字段合理(1..64)且内容为可打印 UTF-8 的片段，
+    提取失败返回空列表（调用方回退 hex 摘要）。
+    """
+    out = []
+    i = 0
+    n = len(body)
+    while i + 2 <= n:
+        ln = int.from_bytes(body[i:i + 2], "little")
+        if 1 <= ln <= 64 and i + 2 + ln <= n:
+            try:
+                s = body[i + 2:i + 2 + ln].decode("utf-8")
+            except UnicodeDecodeError:
+                s = ""
+            if len(s) >= min_len and all(ch.isprintable() for ch in s):
+                out.append(s)
+                i += 2 + ln
+                continue
+        i += 1
+    return out
+
 
 class KabuClient:
     def __init__(self, host: str, log_callback=None, *, port: Optional[int] = None):
@@ -194,6 +227,15 @@ class KabuClient:
             OP_GATEWAY_INDULGE_BACK: self._handle_indulge_response,
             OP_REMOVE_PLAYER_BACK: self._handle_remove_player_response,
             OP_SCREEN_BROADCAST_BACK: self._handle_screen_broadcast,
+            # 登录/进场景后的确认与广播类回包（结构化摘要，替代 hex 刷屏）
+            OP_SERVER_ENTER_BACK: self._handle_server_enter_response,
+            OP_ENTER_SCENE_CONFIRM_BACK: self._handle_scene_confirm_response,
+            OP_SCENE_READY_BACK_1: self._handle_scene_ready_response,
+            OP_SCENE_READY_BACK_2: self._handle_scene_ready_response,
+            OP_SCENE_READY_BACK_3: self._handle_scene_ready_response,
+            OP_COPY_READY_BACK: self._handle_copy_ready_response,
+            OP_TIP_BROADCAST_BACK: self._handle_tip_broadcast,
+            OP_PLAYER_INFO_BROADCAST_BACK: self._handle_player_info_broadcast,
         }
         self._spirit_names: Optional[Dict[int, str]] = None
         self.lock = threading.Lock()
@@ -1240,6 +1282,40 @@ class KabuClient:
                 self.log(f"[广播] 屏幕广播 mP={m_params}，{len(body)}字节", "INFO")
         except (ValueError, struct.error) as exc:
             self.log(f"[广播] 解析失败：{exc}", "ERROR")
+
+    # ---- 登录/进场景后确认与广播类回包的结构化摘要 ----
+
+    def _handle_server_enter_response(self, m_params: int, body: bytes):
+        """1315883 选择服务器后回包：服务器信息确认。"""
+        self.log(f"[服务器] 选择服务器确认 mP={m_params}，{len(body)}字节", "INFO")
+
+    def _handle_scene_confirm_response(self, m_params: int, body: bytes):
+        """1317360 进场景完成确认。"""
+        self.log(f"[场景] 进场景确认完成 mP={m_params}", "INFO")
+
+    def _handle_scene_ready_response(self, m_params: int, body: bytes):
+        """1317152/1317170/1317176 进场景后系统就绪（背包/精灵/任务）。"""
+        self.log(f"[场景] 系统数据就绪 mP={m_params}，{len(body)}字节", "INFO")
+
+    def _handle_copy_ready_response(self, m_params: int, body: bytes):
+        """1316483 进入副本后就绪确认。"""
+        self.log(f"[副本] 就绪确认 mP={m_params}", "INFO")
+
+    def _handle_tip_broadcast(self, m_params: int, body: bytes):
+        """1317330 文本提示广播：尝试读出可读文本，失败回退 hex 摘要。"""
+        texts = _extract_utf8_strings(body)
+        if texts:
+            self.log("[提示] " + " | ".join(texts), "INFO")
+        else:
+            self.log(f"[提示] mP={m_params}，{len(body)}字节 未提取到文本: {body[:64].hex(' ')}", "WRAN")
+
+    def _handle_player_info_broadcast(self, m_params: int, body: bytes):
+        """1316392 玩家信息广播（mP=玩家ID）：提取玩家/宠物名。"""
+        texts = _extract_utf8_strings(body)
+        if texts:
+            self.log(f"[玩家] uid={m_params} " + " / ".join(texts), "INFO")
+        else:
+            self.log(f"[玩家] uid={m_params}，{len(body)}字节 未提取到文本: {body[:64].hex(' ')}", "WRAN")
 
     def _handle_battle_round_start(self, m_params: int, _body: bytes):
         if self.dragon_state.get("dragon_battle_active"):
