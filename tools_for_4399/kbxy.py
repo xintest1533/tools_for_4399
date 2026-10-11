@@ -2137,11 +2137,17 @@ class KabuClient:
                     and not self.dragon_state.get("dragon_refresh_needed")):
                 battle_type = int(self.dragon_state.get("next_combat_index", 0) >= 16)
                 if battle_type == 1:
-                    # 终局战(Boss)服务器对血量敏感：连续发起无响应时先补血+复活再重试，避免无限空转
+                    # 终局战(Boss)：连续发起无响应先补血+复活；再失败则判定当天已挑战/会话失效，停止空转
                     fails = self.dragon_state.get("dragon_boss_retry", 0) + 1
                     self.dragon_state["dragon_boss_retry"] = fails
-                    if fails >= 3:
+                    if fails >= 6:
                         self.dragon_state["dragon_boss_retry"] = 0
+                        self.dragon_state["auto_mode"] = False
+                        self.dragon_state["auto_running"] = False
+                        self.log("[龙腾] 终局战连续发起多次无响应（当天可能已挑战BOSS/副本会话需刷新），"
+                                 "停止自动连打，请稍后或手动重进副本再试", "ERROR")
+                        return True
+                    if fails >= 3:
                         self.log("[龙腾] 终局战连续发起无响应，先补血+遍历复活确保编队完整再重试(Boss战血量敏感)",
                                  "USER")
                         self.dragon_medal_heal(False)
