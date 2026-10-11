@@ -2306,11 +2306,6 @@ class KabuClient:
                 self.dragon_query_progress()
                 time.sleep(0.5)
                 self.dragon_get_selected_monsters()
-        if self.dragon_state.get("dragon_combat_armed") and not self.dragon_state.get("dragon_ordered"):
-            # 编队排序：龙腾自动战斗服务器按编队上阵，把克制妖系(Boss常见)的宠排到第1位，
-            # 服务器自动先上克制宠，提升最终战(黑煞狩妖系)胜率。每个会话只排一次。
-            self.dragon_state["dragon_ordered"] = True
-            self.dragon_order_counter_first(5)
         if not self.dragon_state.get("dragon_combat_armed"):
             # 抽取每日首次进副本有效；反复无回包说明今日抽取已耗尽或需手动抽取。
             self.dragon_state["dragon_draw_fail_count"] = self.dragon_state.get("dragon_draw_fail_count", 0) + 1
@@ -2335,6 +2330,13 @@ class KabuClient:
             self.dragon_state["auto_running"] = False
             self.dragon_state["auto_request_at"] = None
             return False
+        # 编队排序（所有路径统一执行一次）：龙腾为服务器按编队自动上阵的自动战斗，
+        # 把克制妖系(黑煞狩/最终战常见)的存活宠换到编队第1位，服务器自动先上克制宠，
+        # 提升最终战胜率。每个会话只排一次。
+        if (self.dragon_state.get("dragon_combat_armed")
+                and not self.dragon_state.get("dragon_ordered")):
+            self.dragon_state["dragon_ordered"] = True
+            self.dragon_order_counter_first(5)
         return True
 
     def peiyu_enter_check(self, shenshou_user_id: int):
