@@ -1788,9 +1788,10 @@ class KabuClient:
             # choice_monster 对已抽取账号也常返回0（不可靠），不能作为"未抽"依据，
             # 否则已抽账号会反复发空body抽取被服务端静默忽略→超时→死循环（"第一关打不动"根因）。
             has_cand = any(str(c).strip() and str(c).strip() != "0" for c in candidates)
+            # 已抽判定仅以"本会话已抽"或"候选池有数据"为准；不得用 next_combat_index>0
+            # （昨日进度会让今日首次进副本误判为已抽，跳过每日抽取导致"没有可战斗妖怪"mParams=2）。
             already_drew = (
                 self.dragon_state.get("dragon_drew")
-                or int(progress.get("next_combat_index", 0)) > 0
                 or has_cand
             )
             if already_drew:
