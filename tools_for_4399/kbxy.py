@@ -1352,6 +1352,9 @@ class KabuClient:
                             attacker["hp"] = attacker_hp
                         if defender is not None:
                             defender["hp"] = defender_hp
+                        # 龙腾模式：血量/技能PP同步进 dragon_state（决策用最新状态）
+                        self._sync_dragon_battle_state(
+                            attacker_sid, defender_sid, attacker_hp, defender_hp, skill_id)
                     attacker = self._find_battle_actor(attacker_sid)
                     if attacker in self.battle_state["player_team"]:
                         for skill in attacker["skills"]:
@@ -1364,6 +1367,32 @@ class KabuClient:
             self._handle_battle_actor_update(body)
         elif m_params == 2:
             self.log("收到战斗道具结果；自动道具保持禁用", "INFO")
+
+    def _sync_dragon_battle_state(self, attacker_sid: int, defender_sid: int,
+                                  attacker_hp: int, defender_hp: int, skill_id: int):
+        """龙腾模式：把回合结果(1317122)的血量与技能PP同步进 dragon_state。
+
+        旧实现只更新 battle_state，龙腾决策一直读 dragon_state 的初始化快照，
+        导致回合中血量/PP 永不变化、技能选择固定（“总用低伤害技能/打不过”的根因之一）。
+        """
+        if not self.dragon_state.get("dragon_battle_active"):
+            return
+        pets = self.dragon_state.get("dragon_pets") or []
+        for p in pets:
+            if p.get("sid") == attacker_sid:
+                p["hp"] = attacker_hp
+            elif p.get("sid") == defender_sid:
+                p["hp"] = defender_hp
+        idx = next((i for i, p in enumerate(pets) if p.get("sid") == attacker_sid), None)
+        if idx is not None:
+            skillsets = self.dragon_state.get("dragon_skills") or []
+            if idx < len(skillsets):
+                sk = list(skillsets[idx])
+                for k, (sid2, pp, mpp) in enumerate(sk):
+                    if sid2 == skill_id:
+                        sk[k] = (sid2, max(0, pp - 1), mpp)
+                        break
+                skillsets[idx] = sk
 
     def _handle_battle_actor_update(self, body: bytes):
         try:
