@@ -90,7 +90,9 @@ def main() -> int:
     c = KabuClient(HOST)
     try:
         token = _resolve_token(args.token)
-        if not c.login(token):
+        if not c.connect():
+            report["results"].append(_r("连接游戏服务器", False, detail="连接失败"))
+        elif not c.login(token):
             report["results"].append(_r("登录", False, detail="token 无效或超时"))
         else:
             report["results"].append(_r("登录", True))

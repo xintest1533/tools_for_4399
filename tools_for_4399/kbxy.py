@@ -282,6 +282,7 @@ class KabuClient:
         if self.login_error is not None:
             raise ConnectionError(self.login_error)
         self.log(f"服务端已确认进入服务器 {self.selected_server_name} ({self.selected_server_id})")
+        return True
 
     def _heartbeat_loop(self):
         while not self.heartbeat_stop.wait(30):
