@@ -1740,6 +1740,7 @@ class KabuClient:
             wins.append(win)
         if progress["choice_monster"] == 1:
             progress["player_monster_info"], offset = self._read_utf(body, offset)
+            self.log(f"[龙腾] 出战妖怪信息: {progress['player_monster_info']}", "INFO")
 
         self.dragon_state.pop("player_monster_info", None)
         self.dragon_state.update(progress)
@@ -1899,6 +1900,12 @@ class KabuClient:
         elif operation == 5:
             heal_type, offset = self._read_int(body, offset)
             details.append(f"补血类型={heal_type}")
+            rest = body[offset:]
+            if rest:
+                details.append(f"补血回包余量={rest.hex()}")
+            if heal_type == 4:
+                # 阵亡需复活：打印完整回包，确认是否含阵亡妖怪位置
+                self.log(f"[龙腾] 补血(5,4)完整回包体={body.hex()}", "INFO")
         elif result == 0 and operation in (1, 6, 7):
             monster_info, offset = self._read_utf(body, offset)
             details.append(f"妖怪信息={monster_info}")
@@ -1927,12 +1934,11 @@ class KabuClient:
             self.dragon_query_progress()
         elif operation == 5 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
             if result == 4:
-                # 补血回包提示"阵亡妖怪需要复活"，但复活会消耗卡布币，不自动复活；
-                # 直接查询进度继续（普通战可续，阵亡怪留待用户手动/次日处理）
+                # 补血回包提示"阵亡妖怪需要复活"，复活消耗卡布币不自动做；
+                # 改为交换编队(操作7)把活着的妖怪换到前面，不花钱也能继续战斗
                 self.dragon_state["dragon_revive_idx"] = -1
-                self.log("[龙腾] 补血回包：阵亡妖怪需复活（复活消耗卡布币，已跳过不自动复活），"
-                         "查询进度继续", "WRAN")
-                self.dragon_query_progress()
+                self.log("[龙腾] 补血回包：阵亡妖怪需复活(复活花钱已跳过)，改用交换编队把活怪换到前面", "WRAN")
+                self._dragon_swap_alive_to_front()
             elif result == 5:
                 self.log("[龙腾] 一键连打：出战妖怪均已阵亡，直接查询下一关", "USER")
                 self.dragon_query_progress()
@@ -1960,6 +1966,14 @@ class KabuClient:
                 self.dragon_state["dragon_revive_idx"] = -1
                 self.log(f"[龙腾] 一键连打：复活不可用(result={result})，查询下一关", "WRAN")
                 self.dragon_query_progress()
+        elif operation == 7 and self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
+            # 交换编队回包：成功后继续查进度（进度回包给出新的 player_monster_info，
+            # 若仍有阵亡 watchdog 会再次补血→再次交换，直到把活怪都换到前面）
+            if result == 0:
+                self.log("[龙腾] 一键连打：编队交换成功，查询进度续战", "USER")
+            else:
+                self.log(f"[龙腾] 一键连打：编队交换失败(result={result})，查询进度续战", "WRAN")
+            self.dragon_query_progress()
         elif operation == 3 and self.dragon_state.get("auto_mode"):
             q = self.dragon_state.get("auto_lottery_queue") or []
             if q:
@@ -2063,6 +2077,48 @@ class KabuClient:
         if not self._ensure_dragon_preparation("交换编队"):
             return False
         return self.send_cmd(OP_DRAGON_ACTION, DRAGON_COPY_MPARAMS, [7, 2, index1, index2])
+
+    def _dragon_swap_alive_to_front(self):
+        """阵亡妖怪不复活(省钱)：用交换编队(操作7)把活着的妖怪换到前面。
+        出战妖怪信息 player_monster_info 格式(冒号分隔，每6字段一只)：
+        element:spirit_id:maxhp/hp:... 其中第3字段 hp==0 表示阵亡。
+        每次只交换第一个阵亡位置与最后一个存活位置，多轮逐步清空阵亡位。"""
+        try:
+            info = self.dragon_state.get("player_monster_info") or ""
+            if not info:
+                self.log("[龙腾] 无出战妖怪信息，无法交换编队，查询进度", "WRAN")
+                self.dragon_query_progress()
+                return
+            parts = info.split(":")
+            monsters = []
+            for i in range(0, len(parts) - 1, 6):
+                if i + 2 < len(parts):
+                    monsters.append({"spirit": parts[i + 1], "hp": parts[i + 2]})
+            if not monsters:
+                self.log("[龙腾] 出战妖怪信息解析为空，查询进度", "WRAN")
+                self.dragon_query_progress()
+                return
+            dead = [i for i, m in enumerate(monsters) if m["hp"] == "0"]
+            if not dead:
+                self.log("[龙腾] 出战妖怪无阵亡，无需交换，查询进度", "WRAN")
+                self.dragon_query_progress()
+                return
+            di = dead[0]
+            alive_tail = len(monsters) - 1
+            while alive_tail in dead:
+                alive_tail -= 1
+                if alive_tail < 0:
+                    break
+            if alive_tail < 0:
+                self.log("[龙腾] 出战妖怪全部阵亡，无法交换，查询进度", "WRAN")
+                self.dragon_query_progress()
+                return
+            self.log(f"[龙腾] 交换编队：阵亡位置{di + 1}(spirit{monsters[di]['spirit']}) "
+                     f"↔ 存活位置{alive_tail + 1}(spirit{monsters[alive_tail]['spirit']})", "USER")
+            self.dragon_swap_monsters(di + 1, alive_tail + 1)
+        except Exception as e:
+            self.log(f"[龙腾] 交换编队异常：{e}，查询进度", "ERROR")
+            self.dragon_query_progress()
 
     def dragon_exit_copy(self) -> bool:
         self.log("请求离开龙腾副本", "USER")
