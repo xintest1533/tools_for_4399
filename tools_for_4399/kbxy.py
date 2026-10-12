@@ -2235,6 +2235,13 @@ class KabuClient:
         if self.battle_state["active"]:
             self.log("当前战斗尚未结束，不能发起新的龙腾战斗", "WRAN")
             return False
+        # 阵亡检测：出战怪任一 HP0（上阵阵亡）时服务端不启动回合（实测第12场卡死），
+        # 先自动交换编队(操作7)把活怪换到前面（不花钱），再走自动续战流程。
+        team = self.dragon_state.get("dragon_team") or []
+        if team and any(str(m.get("hp", "0")) == "0" for m in team[:6]):
+            self.log("[龙腾] 出战怪存在阵亡(HP0)，先交换编队把活怪换到前面，再发起战斗", "WRAN")
+            self._dragon_swap_alive_to_front()
+            return False
         return self.send_cmd(OP_DRAGON_ACTION, DRAGON_COPY_MPARAMS, [2, 1, battle_type])
 
     def _ensure_dragon_preparation(self, action: str) -> bool:
