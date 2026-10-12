@@ -115,14 +115,25 @@ def probe_dragon_battle(c: KabuClient, results: list) -> None:
 
 def probe_dragon_auto(c: KabuClient, results: list) -> None:
     """自动连打闭环探测（--auto，依赖先 --battle 打过一场）：
-    设置 auto_mode/in_dragon，主动查进度触发"进关卡+自动发起下一场"分支，
+    设置 auto_mode/in_dragon，查进度触发自动流程，然后模拟 watchdog 心跳
+    循环调用 dragon_check_stuck()（兜底发起战斗/交换编队续战），
     观察 dragon_battle_active 是否变 True（连续连打闭环验证）。"""
     try:
         c.dragon_state["auto_mode"] = True
         c.dragon_state["in_dragon"] = True
         c.dragon_state["auto_running"] = True
         c.dragon_query_progress()
-        time.sleep(4.0)
+        started = False
+        for _ in range(8):
+            time.sleep(1.5)
+            try:
+                c.dragon_check_stuck()
+            except Exception as exc:  # noqa: BLE001
+                results.append({"op": "龙腾自动连打闭环", "status": "EXC", "detail": str(exc)})
+                return
+            if c.dragon_state.get("dragon_battle_active"):
+                started = True
+                break
         armed = c.dragon_state.get("dragon_combat_armed")
         viewed = c.dragon_state.get("dragon_candidate_viewed")
         active = c.dragon_state.get("dragon_battle_active")
