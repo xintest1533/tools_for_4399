@@ -1588,14 +1588,35 @@ class KabuClient:
             return
         self.log("自动战斗暂停：技能 PP 已耗尽、无可用替补且服务端不允许逃跑", "ERROR")
 
+    def _dragon_need_heal(self, threshold: int = 600) -> bool:
+        """判定关卡间是否值得用一次免费补血：出战怪中存在血量>0且低于阈值的活怪
+        （补血可将其回满）。全部阵亡（补血无效）或血量充足则返回 False，节省免费次数。"""
+        try:
+            info = self.dragon_state.get("player_monster_info") or ""
+            if not info:
+                return False
+            monsters = self._parse_player_monster_info(info)
+            alive = [m for m in monsters if str(m.get("hp", "")).strip() not in ("", "0")]
+            if not alive:
+                return False  # 出战怪全部阵亡，补血救不了阵亡怪
+            low = [m for m in alive if int(m["hp"]) < threshold]
+            return bool(low)
+        except Exception:
+            return False
+
     def _handle_battle_end(self, _m_params: int, _body: bytes):
         if self.dragon_state.get("dragon_battle_active"):
             self.dragon_state["dragon_battle_active"] = False
             self.log("[龙腾] 龙腾战斗结束（结算回包）", "INFO")
             if self.dragon_state.get("auto_mode") and self.dragon_state.get("in_dragon"):
                 if self.dragon_state.get("life_chance", 0) > 0:
-                    self.log("[龙腾] 一键连打：免费补血后进入下一关", "USER")
-                    self.dragon_medal_heal(False)
+                    # 按需补血：有低血量活怪才用免费次数回满，血量充足则省次数直接推进
+                    if self._dragon_need_heal():
+                        self.log("[龙腾] 一键连打：检测到低血量出战怪，免费补血后进入下一关", "USER")
+                        self.dragon_medal_heal(False)
+                    else:
+                        self.log("[龙腾] 一键连打：出战怪血量充足，跳过补血直接查询下一关", "USER")
+                        self.dragon_query_progress()
                 else:
                     self.log("[龙腾] 一键连打：免费补血次数已用完，直接查询下一关", "USER")
                     self.dragon_query_progress()
