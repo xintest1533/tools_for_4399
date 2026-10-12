@@ -1976,12 +1976,20 @@ class KabuClient:
             if already_drew:
                 if not self.dragon_state.get("dragon_drew"):
                     self.dragon_state["dragon_drew"] = True
-                # 先发操作1(出战查询)确认出战怪就绪（进副本后服务端已自动抽取）
+                # 先确认出战怪就绪：1317250 进度回包自带出战信息(choice_monster=1，
+                # 进副本/查进度后服务端已给出 12 只出战怪)，无需发操作1(1186184)——
+                # 操作1回包同为 1317250，会再次进入本 handler 并已消费 auto_running，
+                # 导致自动流程只发操作1后不再继续(实测 15:02 卡死于此)。
                 if not self.dragon_state.get("dragon_combat_armed"):
-                    self.dragon_get_selected_monsters()
-                    self.dragon_state["dragon_combat_armed"] = True
-                    self.dragon_state["dragon_combat_armed_at"] = time.monotonic()
-                    return
+                    if self.dragon_state.get("dragon_team"):
+                        self.dragon_state["dragon_combat_armed"] = True
+                        self.dragon_state["dragon_combat_armed_at"] = time.monotonic()
+                        self.log("[龙腾] 出战怪已就绪(进度回包自带出战信息)", "INFO")
+                    else:
+                        self.dragon_get_selected_monsters()
+                        self.dragon_state["dragon_combat_armed"] = True
+                        self.dragon_state["dragon_combat_armed_at"] = time.monotonic()
+                        return
                 # 龙腾副本需先"查看候选"(操作4)确认出战序列，服务端才接受开战；
                 # 操作4通常无回包，由 dragon_check_stuck 兜底补发战斗。
                 if not self.dragon_state.get("dragon_candidate_viewed"):

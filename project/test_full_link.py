@@ -70,14 +70,14 @@ def probe_dragon(c: KabuClient, results: list) -> None:
         time.sleep(1.0)
         results.append(_r("龙腾查进度", c.dragon_query_progress()))
         time.sleep(1.2)
-        # 只读操作：查询出战妖怪（操作1），不发起战斗/抽奖，不消耗每日额度
-        c.dragon_get_selected_monsters()
-        time.sleep(1.2)
+        # 出战信息由 1317250 进度回包自带(choice_monster=1 时给出 12 只出战怪)，
+        # 无需发操作1(1186184)——其回包同为 1317250，会消费 auto_running 卡死自动流程。
+        team = c.dragon_state.get("dragon_team") or []
         drew = c.dragon_state.get("dragon_drew")
         armed = c.dragon_state.get("dragon_combat_armed")
         results.append(_r(
-            "龙腾出战查询(操作1)", True,
-            detail=f"dragon_drew={drew} dragon_combat_armed={armed}（回包详见日志）",
+            "龙腾出战确认(进度回包自带)", True,
+            detail=f"dragon_drew={drew} dragon_combat_armed={armed} 出战{len(team)}只（回包详见日志）",
         ))
     except Exception as e:  # noqa: BLE001
         results.append({"op": "龙腾进副本/查进度", "status": "EXC", "detail": str(e)})
