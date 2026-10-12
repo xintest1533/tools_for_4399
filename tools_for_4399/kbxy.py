@@ -2344,6 +2344,25 @@ class KabuClient:
                 self.log("[龙腾] 出战妖怪无阵亡，无需交换，查询进度", "WRAN")
                 self.dragon_query_progress()
                 return
+            alive = len(monsters) - len(dead)
+            if alive < 2:
+                # 存活不足2只时交换已无意义（换到位置1也仅1只，下一场仍打不动）。
+                # 避免死循环刷屏(实测第17场全倒后交换50次)+触发风控，停止自动连打提示手动恢复。
+                self.log("[龙腾] 出战妖怪几乎全倒，交换编队无法恢复战力，自动连打停止。"
+                         "请在游戏内补血/复活后重试，或明日再战", "ERROR")
+                self.dragon_state["auto_mode"] = False
+                self.dragon_state["auto_running"] = False
+                self.dragon_state["dragon_swap_count"] = 0
+                return
+            cnt = self.dragon_state.get("dragon_swap_count", 0)
+            if cnt >= 6:
+                self.dragon_state["dragon_swap_count"] = 0
+                self.log("[龙腾] 交换编队多次仍未恢复(存活数未变化)，自动连打停止防刷屏。"
+                         "请手动补血/复活后重试", "ERROR")
+                self.dragon_state["auto_mode"] = False
+                self.dragon_state["auto_running"] = False
+                return
+            self.dragon_state["dragon_swap_count"] = cnt + 1
             di = dead[0]
             alive_tail = len(monsters) - 1
             while alive_tail in dead:
