@@ -1179,6 +1179,9 @@ class KabuClient:
         if not self.dragon_state.get("dragon_battle_active"):
             return
         if m_params == 0:
+            # KBXY_DEBUG=1 时打印回合回包原始hex，供逆向多行动/敌方行动格式
+            if os.environ.get("KBXY_DEBUG") == "1" and body:
+                self.log(f"[龙腾] 回合回包hex({len(body)}B): {body.hex()}", "DEBUG")
             self._log_battle_round(body, "龙腾")
             self._update_dragon_hp_from_round(body)
         waiting = self.dragon_state.get("dragon_waiting", "idle")
@@ -1213,11 +1216,16 @@ class KabuClient:
         for p in pets:
             if p.get("sid") == attacker_sid:
                 p["hp"] = attacker_hp
-            if p.get("sid") == defender_sid:
+            # 防御：sid 相同（攻击方=防御方）说明敌方行动回包格式解析错位，
+            # 此时不同步防御方，避免把错位血量写到另一只宠上
+            elif defender_sid != attacker_sid and p.get("sid") == defender_sid:
                 p["hp"] = defender_hp
-        # 技能PP扣减：攻击方本回合使用的技能（PP耗尽后决策自动跳过换技能）
+        # 技能PP扣减：攻击方本回合使用的技能（PP耗尽后决策自动跳过换技能）。
+        # 防御：仅当前上阵宠的攻击行动扣PP；敌方反击回包(attacker_sid=敌方)不会命中。
+        cur_pi = min(self.dragon_state.get("dragon_skill_idx", 0), len(pets) - 1)
+        cur_sid = pets[cur_pi]["sid"] if cur_pi < len(pets) else None
         idx = next((i for i, p in enumerate(pets) if p.get("sid") == attacker_sid), None)
-        if idx is not None:
+        if idx is not None and attacker_sid == cur_sid:
             skillsets = self.dragon_state.get("dragon_skills") or []
             if idx < len(skillsets):
                 sk = list(skillsets[idx])
