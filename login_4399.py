@@ -14,6 +14,7 @@
 凭证文件 credentials.json 已被 .gitignore 排除，永不上传。
 """
 import argparse
+import http.cookiejar
 import json
 import os
 import sys
@@ -93,7 +94,9 @@ def password_login(username: str, password: str, timeout: float = 15) -> str:
     4399 表单登录受验证码/风控影响较大，失败会抛 RuntimeError；
     调用方可回退到手动 cookie 路径。
     """
-    opener = urllib.request.build_opener()
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
+    )
     # 1) 打开登录页拿会话与隐藏参数
     try:
         page = opener.open(urllib.request.Request(
