@@ -1171,8 +1171,10 @@ class KabuClient:
             defender_sid, offset = self._read_int(body, offset)
             miss, offset = self._read_int(body, offset)
             # 敌方技能类型判定（针对性应对：先看对方这只怪用的是物理还是法术技能）
-            enemies = self.dragon_state.get("dragon_enemies") or []
-            if any(str(e.get("spirit_id", "")) == str(attacker_sid) for e in enemies):
+            # 可靠依据：dragon_enemies 只记录初始化预览敌方，与战斗回合实际参战敌方的 sid
+            # 空间不一致；改用"攻击方不是我方出战怪(dragon_pets)即为敌方"判定。
+            mine_sids = {str(p.get("sid", "")) for p in (self.dragon_state.get("dragon_pets") or [])}
+            if mine_sids and str(attacker_sid) not in mine_sids:
                 st = self._skill_stype(skill_id)
                 if st:
                     self.dragon_state["enemy_skill_type"] = st
