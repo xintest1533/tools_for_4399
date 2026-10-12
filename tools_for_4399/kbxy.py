@@ -266,6 +266,7 @@ class KabuClient:
             "auto_running": False,
             "auto_mode": False,
             "auto_lottery_queue": [],
+            "dragon_lottery_rewards": [],
             "current_stage": 1,
             "auto_request_at": None,
             "in_dragon": False,
@@ -2084,15 +2085,23 @@ class KabuClient:
                             f"Boss序号={boss_index}"))
         elif operation == 3 and result == 0:
             details.append("抽奖成功")
+            rewards = []
             try:
                 if offset + 4 <= len(body):
                     idx, offset = self._read_int(body, offset)
                     details.append(f"奖励序号={idx}")
                 while offset + 4 <= len(body):
                     val, offset = self._read_int(body, offset)
-                    details.append(f"奖励字段={val}")
+                    nm = self._spirit_name(val) if val > 0 else ""
+                    rewards.append(val)
+                    details.append(f"奖励={val}({nm})" if nm else f"奖励={val}")
             except (ValueError, struct.error):
                 pass
+            if rewards:
+                self.dragon_state["dragon_lottery_rewards"] = rewards
+                names = [self._spirit_name(v) for v in rewards if v > 0 and self._spirit_name(v)]
+                if names:
+                    self.log(f"[龙腾] 抽奖获得物品：{'、'.join(names)}", "USER")
         elif operation == 5:
             heal_type, offset = self._read_int(body, offset)
             details.append(f"补血类型={heal_type}")
@@ -2189,6 +2198,12 @@ class KabuClient:
                 self.dragon_state["auto_request_at"] = None
                 self.dragon_state["auto_mode"] = False
                 self.dragon_state["auto_lottery_queue"] = []
+                rewards = self.dragon_state.get("dragon_lottery_rewards") or []
+                if rewards:
+                    names = [self._spirit_name(v) for v in rewards if v > 0 and self._spirit_name(v)]
+                    shown = "、".join(names) if names else "、".join(map(str, rewards))
+                    self.log(f"[龙腾] 本次抽奖获得：{shown}", "USER")
+                    self.dragon_state["dragon_lottery_rewards"] = []
                 self.log("[龙腾] 奖励抽取完毕，一键连打结束", "USER")
 
     def _handle_dragon_enter_response(self, m_params: int, body: bytes):
