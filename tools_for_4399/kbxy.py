@@ -262,6 +262,7 @@ class KabuClient:
         self._login_server_mode = "auto"
         self.dragon_state = {
             "today_pass": 0,
+            "dragon_auto_revive": False,
             "life_chance": 0,
             "auto_running": False,
             "auto_mode": False,
@@ -1935,12 +1936,9 @@ class KabuClient:
               progress['medals'], progress['today_pass'], "".join(candidates))
         if fp != getattr(self, "_last_progress_fp", None):
             self.log(
-                f"[龙腾] 勋章={progress['medals']}，副本间免费补血次数="
-                f"{progress['life_chance']}，今日通关={progress['today_pass']}，"
-                f"进度：第 {progress['next_combat_index'] + 1}/17 场"
-                f"({'终局战(Boss)' if progress['next_combat_index'] >= 17 else '普通战'})，"
-                f"当前场次={progress['current_combat']}，"
-                f"候选妖怪={len(candidates)}只"
+                f"[龙腾] 进度：第 {progress['next_combat_index'] + 1}/17 场"
+                f"{'，这是最后的总Boss战！' if progress['next_combat_index'] >= 17 else '（普通战）'}，"
+                f"{'已经通关！' if progress['today_pass'] != 0 else '还没通关'}"
             )
             self.log("[龙腾] 候选列表：" + "、".join(candidates))
             if wins:
@@ -2081,8 +2079,8 @@ class KabuClient:
             combat_result, offset = self._read_int(body, offset)
             medals, offset = self._read_int(body, offset)
             boss_index, offset = self._read_int(body, offset)
-            details.extend((f"战斗结果={combat_result}", f"获得勋章={medals}",
-                            f"Boss序号={boss_index}"))
+            what = "最后的总Boss战" if boss_index else "普通战"
+            details.append(f"已开始{what}，打完后看是否通关")
         elif operation == 3 and result == 0:
             details.append("抽奖成功")
             rewards = []
@@ -2347,9 +2345,20 @@ class KabuClient:
             alive = len(monsters) - len(dead)
             if alive < 2:
                 # 存活不足2只时交换已无意义（换到位置1也仅1只，下一场仍打不动）。
-                # 避免死循环刷屏(实测第17场全倒后交换50次)+触发风控，停止自动连打提示手动恢复。
+                # 若开启"卡布币自动复活"开关则用卡布币复活阵亡出战怪（消耗卡布币）；
+                # 否则停止自动连打避免死循环刷屏(实测第17场全倒后交换50次)+触发风控。
+                if self.dragon_state.get("dragon_auto_revive"):
+                    self.log("[龙腾] 出战妖怪几乎全倒，正在用卡布币自动复活...", "USER")
+                    self.dragon_state["dragon_swap_count"] = 0
+                    for idx, m in enumerate(monsters):
+                        if m["hp"] == "0" and idx < 6:
+                            self.dragon_revive_monster(idx + 1)
+                            time.sleep(1.2)
+                    self.log("[龙腾] 已请求复活阵亡出战怪，重新查询进度续战", "USER")
+                    self.dragon_query_progress()
+                    return
                 self.log("[龙腾] 出战妖怪几乎全倒，交换编队无法恢复战力，自动连打停止。"
-                         "请在游戏内补血/复活后重试，或明日再战", "ERROR")
+                         "请开启「卡布币复活」开关自动消耗卡布币复活，或在游戏内手动补血/复活后重试，或明日再战", "ERROR")
                 self.dragon_state["auto_mode"] = False
                 self.dragon_state["auto_running"] = False
                 self.dragon_state["dragon_swap_count"] = 0

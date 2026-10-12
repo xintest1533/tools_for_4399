@@ -219,7 +219,13 @@ class KabuGUI:
         self.progress_btn = MechButton(row2, "查询进度", self._query_progress, bg=SUB,
                                        width=104, height=34)
         self.progress_btn.pack(side="left", padx=(10, 0))
-        self.dragon_status = tk.Label(self.left, text="进度：未进副本", bg=CARD, fg=TEXT,
+        row2b = tk.Frame(self.left, bg=CARD)
+        row2b.pack(fill="x", padx=16, pady=4)
+        self.revive_on = False
+        self.revive_btn = MechButton(row2b, "卡布币复活：关", self._toggle_revive, bg=SUB,
+                                     width=160, height=34)
+        self.revive_btn.pack(side="left")
+        self.dragon_status = tk.Label(self.left, text="进度：还没进副本", bg=CARD, fg=TEXT,
                                       font=("Microsoft YaHei UI", 10))
         self.dragon_status.pack(anchor="w", padx=16, pady=6)
         self.reward_lbl = tk.Label(self.left, text="抽奖：暂无", bg=CARD, fg=SUB,
@@ -343,6 +349,15 @@ class KabuGUI:
         self.stop_flag.set()
         self.push_log("请求停止自动连打", "WRAN")
 
+    def _toggle_revive(self):
+        self.revive_on = not self.revive_on
+        if self.revive_on:
+            self.revive_btn.set(text="卡布币复活：开", bg=OK)
+            self.push_log("已开启卡布币自动复活：出战妖怪阵亡时会自动消耗卡布币复活（需要足够的卡布币）", "USER")
+        else:
+            self.revive_btn.set(text="卡布币复活：关", bg=SUB)
+            self.push_log("已关闭卡布币自动复活：出战妖怪阵亡后自动连打会停止，需手动补血/复活", "USER")
+
     def _dragon_loop(self):
         try:
             token = self._resolve_token()
@@ -359,6 +374,9 @@ class KabuGUI:
                     self.push_log(f"登录失败：{e}", "ERROR")
                     return
             self.push_log("登录成功，开始自动连打", "OK")
+            c.dragon_state["dragon_auto_revive"] = self.revive_on
+            if self.revive_on:
+                self.push_log("已按开关开启卡布币自动复活：阵亡时会自动消耗卡布币复活", "USER")
             deadline = time.time() + 1800
             last = -1
             while not self.stop_flag.is_set() and time.time() < deadline:
@@ -368,7 +386,7 @@ class KabuGUI:
                         time.sleep(2)
                         continue
                     if c.dragon_state.get("today_pass", 0) != 0:
-                        self.push_log("今日已通关，自动连打结束", "USER")
+                        self.push_log("已经通关啦，自动连打结束", "USER")
                         break
                     c.dragon_auto_start()
                     for _ in range(6):
@@ -380,10 +398,11 @@ class KabuGUI:
                     if stage != last:
                         last = stage
                         tp = c.dragon_state.get("today_pass", 0)
-                        label = "终局战" if stage >= 17 else f"第{stage + 1}/17场"
-                        self.root.after(0, lambda s=label, t=tp: self.dragon_status.configure(
-                            text=f"进度：{s}  今日通关={t}"))
-                        self.push_log(f"进度：{s} 今日通关={tp}", "USER")
+                        label = "最后的总Boss战" if stage >= 17 else f"第{stage + 1}/17场"
+                        done = "已通关" if tp else "还没通关"
+                        self.root.after(0, lambda s=label, d=done: self.dragon_status.configure(
+                            text=f"进度：{s}，{d}"))
+                        self.push_log(f"进度：{s}，{done}", "USER")
                     rw = c.dragon_state.get("dragon_lottery_rewards") or []
                     if rw:
                         names = [c._spirit_name(v) for v in rw if v > 0]
