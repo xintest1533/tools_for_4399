@@ -1126,12 +1126,14 @@ class KabuClient:
                     m_eff = re.search(r'<effect>\s*(-?\d+)\s*</effect>', skill_block)
                     m_elem = re.search(r'<elem>\s*(\d+)\s*</elem>', skill_block)
                     m_cnt = re.search(r'<count>\s*(\d+)\s*</count>', skill_block)
+                    m_type = re.search(r'<type>\s*([^<]*?)\s*</type>', skill_block)
                     self._skill_table[sid] = {
                         "name": m_name.group(1).strip() if m_name else "",
                         "power": int(m_pow.group(1)) if m_pow else 0,
                         "effect": int(m_eff.group(1)) if m_eff else 0,
                         "elem": int(m_elem.group(1)) if m_elem else 0,
                         "count": int(m_cnt.group(1)) if m_cnt else 0,
+                        "stype": m_type.group(1).strip() if m_type else "",
                     }
                 if self._skill_table:
                     self.log(f"已加载技能表 {len(self._skill_table)} 条（{path}）", "INFO")
@@ -1146,6 +1148,10 @@ class KabuClient:
 
     def _skill_name(self, sid: int) -> str:
         return self._skill_info(sid).get("name", "")
+
+    def _skill_stype(self, sid: int) -> str:
+        """技能类型白话标签（skill.xml <type>：物理技能/法术技能/辅助...）。"""
+        return self._skill_info(sid).get("stype", "") or ""
 
     def _sid_label(self, sid: int) -> str:
         nm = self._spirit_name(sid)
@@ -1164,6 +1170,15 @@ class KabuClient:
             skill_id, offset = self._read_int(body, offset)
             defender_sid, offset = self._read_int(body, offset)
             miss, offset = self._read_int(body, offset)
+            # 敌方技能类型判定（针对性应对：先看对方这只怪用的是物理还是法术技能）
+            enemies = self.dragon_state.get("dragon_enemies") or []
+            if any(str(e.get("spirit_id", "")) == str(attacker_sid) for e in enemies):
+                st = self._skill_stype(skill_id)
+                if st:
+                    self.dragon_state["enemy_skill_type"] = st
+                    if st != self.dragon_state.get("_last_enemy_stype"):
+                        self.dragon_state["_last_enemy_stype"] = st
+                        self.log(f"[决策] 对方这只怪在用{st}，按它的类型针对性应对", "USER")
             if miss == 0:
                 _, offset = self._read_int(body, offset)
                 attacker_hp, offset = self._read_int(body, offset)
