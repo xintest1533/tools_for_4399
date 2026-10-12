@@ -1,0 +1,77 @@
+{
+  "ts": "2026-10-12 11:17:45",
+  "module": "全链路(培育/神兽园/龙腾)",
+  "results": [
+    {
+      "op": "登录",
+      "status": "OK"
+    },
+    {
+      "op": "神兽园入口检查",
+      "status": "SKIP",
+      "note": "缺少 shenshou_user_id"
+    },
+    {
+      "op": "神兽园状态",
+      "status": "OK"
+    },
+    {
+      "op": "培育仓状态",
+      "status": "OK"
+    },
+    {
+      "op": "龙腾进副本",
+      "status": "OK"
+    },
+    {
+      "op": "龙腾查进度",
+      "status": "OK"
+    },
+    {
+      "op": "龙腾出战查询(操作1)",
+      "status": "OK",
+      "detail": "dragon_drew=False dragon_combat_armed=False（回包详见日志）"
+    },
+    {
+      "op": "龙腾发起战斗",
+      "status": "OK",
+      "detail": "已发送[2,1,0]普通战"
+    },
+    {
+      "op": "龙腾回合观察",
+      "status": "OK",
+      "detail": "dragon_round=0 battle_active=False 出战12只（回包详见日志）"
+    },
+    {
+      "op": "龙腾进度推进检查",
+      "status": "OK",
+      "detail": "current_stage=11 current_combat=1"
+    },
+    {
+      "op": "龙腾自动连打闭环",
+      "status": "OK",
+      "detail": "combat_armed=True candidate_viewed=False battle_active=False stage=11（battle_active=True 表示已自动发起下一场）"
+    }
+  ],
+  "summary": {
+    "ok": 11,
+    "fail": 0
+  },
+  "unparsed_opcodes": {
+    "1318446": {
+      "mP": 18,
+      "count": 1,
+      "bytes": 144,
+      "name": "系统开关配置",
+      "sample": "06 00 00 00 00 00 00 00 07 00 00 00 00 00 00 00 09 00 00 00 00 00 00 00 0a 00 00 00 00 00 00 00 0b 00 00 00 00 00 00 00 0c 00 00 00 00 00 00 00 0d 00 00 00 00 00 00 00 0e 00 00 00 00 00 00 00"
+    },
+    "1315384": {
+      "mP": 273622610,
+      "count": 1,
+      "bytes": 8,
+      "name": "玩家状态回包",
+      "sample": "52 26 4f 10 69 13 ee 01"
+    }
+  },
+  "improvements": "存在 2 类未结构化解析的回包，建议下轮开发为高频 opcode 增加结构化解析器（先覆盖出现时机明确的 1315883/1317360/1317152 等）"
+}
