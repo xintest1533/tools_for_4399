@@ -939,7 +939,9 @@ class KabuClient:
         candidates = []
         enemy_hp = enemies[0].get("hp", 0) if enemies else 0
         enemy_max = enemies[0].get("max_hp", 1) if enemies else 1
-        enemy_ratio = enemy_hp / max(enemy_max, 1)
+        # 敌方血量字段在部分回包为负值（伤害结算差值），钳制为0避免误判"敌方残血"
+        # 而让收割加成(28分)无差别触发，影响技能选择相对权重。
+        enemy_ratio = max(0, enemy_hp) / max(enemy_max, 1)
         for si, (sid, pp, mpp) in enumerate(sk):
             if pp <= 0:
                 continue

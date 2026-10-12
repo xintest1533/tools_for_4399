@@ -113,6 +113,29 @@ def probe_dragon_battle(c: KabuClient, results: list) -> None:
         results.append({"op": "龙腾战斗链路", "status": "EXC", "detail": str(e)})
 
 
+def probe_dragon_auto(c: KabuClient, results: list) -> None:
+    """自动连打闭环探测（--auto，依赖先 --battle 打过一场）：
+    设置 auto_mode/in_dragon，主动查进度触发"进关卡+自动发起下一场"分支，
+    观察 dragon_battle_active 是否变 True（连续连打闭环验证）。"""
+    try:
+        c.dragon_state["auto_mode"] = True
+        c.dragon_state["in_dragon"] = True
+        c.dragon_state["auto_running"] = True
+        c.dragon_query_progress()
+        time.sleep(4.0)
+        armed = c.dragon_state.get("dragon_combat_armed")
+        viewed = c.dragon_state.get("dragon_candidate_viewed")
+        active = c.dragon_state.get("dragon_battle_active")
+        stage = c.dragon_state.get("current_stage")
+        results.append(_r(
+            "龙腾自动连打闭环", True,
+            detail=f"combat_armed={armed} candidate_viewed={viewed} "
+                   f"battle_active={active} stage={stage}（battle_active=True 表示已自动发起下一场）",
+        ))
+    except Exception as e:  # noqa: BLE001
+        results.append({"op": "龙腾自动连打闭环", "status": "EXC", "detail": str(e)})
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="卡布西游全链路测试")
     ap.add_argument("--token", default="", help="4399 登录态 token（优先；缺省自动从 credentials.json 取）")
@@ -120,6 +143,8 @@ def main() -> int:
     ap.add_argument("--shenshou", type=int, default=0, help="神兽园 shenshou_user_id（可选）")
     ap.add_argument("--battle", action="store_true",
                     help="发起1场龙腾普通战实测战斗链路（消耗今日1场额度）")
+    ap.add_argument("--auto", action="store_true",
+                    help="战斗后验证自动连打闭环（查进度→自动发起下一场；需--battle）")
     args = ap.parse_args()
 
     report = {
@@ -153,6 +178,8 @@ def main() -> int:
                 probe_dragon(c, report["results"])
                 if args.battle:
                     probe_dragon_battle(c, report["results"])
+                if args.auto:
+                    probe_dragon_auto(c, report["results"])
     except Exception:  # noqa: BLE001
         report["results"].append({"op": "全链路", "status": "EXC", "detail": traceback.format_exc()})
     finally:
